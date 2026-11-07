@@ -64,13 +64,54 @@ def test_lock_unlock_audit(capsys: pytest.CaptureFixture[str]) -> None:
     s.close()
 
 
-def test_autostart_command() -> None:
-    from tell_my_pc.cli import autostart_command
+def test_autostart_script(tmp_path: Path) -> None:
+    from tell_my_pc.cli import autostart_script
 
-    cmd = autostart_command("install")
-    assert cmd[:3] == ["schtasks", "/Create", "/TN"]
-    assert "ONLOGON" in cmd and "/IT" in cmd and "LIMITED" in cmd
-    tr = cmd[cmd.index("/TR") + 1]
-    assert "tell_my_pc.cli" in tr and "serve" in tr and "--log-file" in tr
-    assert "dangerously" not in " ".join(cmd)
-    assert autostart_command("remove")[:2] == ["schtasks", "/Delete"]
+    cfg = tmp_path / "it's here" / "config.yaml"
+    script = autostart_script("install", cfg)
+    assert "Register-ScheduledTask" in script and "-AtLogOn" in script
+    assert "-RunLevel Limited" in script and "schtasks" not in script
+    assert "--config" in script and "--data-dir" in script and "--log-file" in script
+    assert "it''s here" in script  # single quotes escaped for PowerShell
+    assert "dangerously" not in script
+    assert "Unregister-ScheduledTask" in autostart_script("remove")
+    assert "Get-ScheduledTask" in autostart_script("status")
+
+
+def test_serve_survives_pythonw_without_console(repo: Path, tmp_path: Path) -> None:
+    """Autostart runs under pythonw, where sys.stdout/stderr are None."""
+    import socket
+    import subprocess
+    import sys
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        yaml.safe_dump(
+            {
+                "server": {"bind": "127.0.0.1", "port": port, "token": {"value": "t" * 40}},
+                "projects": [{"name": "x", "path": str(repo)}],
+                "executor": {"type": "fake"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    log = tmp_path / "d.log"
+    code = (
+        "import sys, threading, os; sys.stdout = None; sys.stderr = None; "
+        "threading.Timer(8, lambda: os._exit(0)).start(); "
+        "from tell_my_pc.cli import main; "
+        f"main(['--config', r'{cfg}', '--data-dir', r'{tmp_path / 'data'}', "
+        f"'serve', '--log-file', r'{log}'])"
+    )
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert "listening on" in log.read_text(encoding="utf-8")
+
+
+def test_data_dir_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    d = tmp_path / "elsewhere"
+    assert main(["--data-dir", str(d), "paths"]) == 0
+    assert str(d.resolve()) in capsys.readouterr().out

@@ -228,6 +228,7 @@ class TailscaleHttpTransport:
             host=self.host,
             port=self.port,
             log_level="warning",
+            log_config=None,  # use our logging setup; uvicorn's writes to the console
             lifespan="off",
             access_log=False,
             server_header=False,
