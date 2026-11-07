@@ -16,6 +16,19 @@
           "description": "Path to claude; default: found on PATH.",
           "title": "Claude Path"
         },
+        "git_bash_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Windows only: Git Bash for Claude Code hooks. Default: found next to git.",
+          "title": "Git Bash Path"
+        },
         "max_turns": {
           "anyOf": [
             {

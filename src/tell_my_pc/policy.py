@@ -45,7 +45,8 @@ SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
 # Tools with no side effects outside the conversation. Subagent tool calls are hooked too.
 SAFE_TOOLS = frozenset(
     {"TodoWrite", "Task", "Agent", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet",
-     "TaskOutput", "BashOutput", "KillShell", "KillBash", "ExitPlanMode", "ToolSearch"}
+     "TaskOutput", "BashOutput", "KillShell", "KillBash", "ExitPlanMode", "ToolSearch",
+     "StructuredOutput"}
 )  # fmt: skip
 
 READ_TIER_TOOLS = frozenset(READ_PATH_TOOLS) | WEB_TOOLS | SAFE_TOOLS

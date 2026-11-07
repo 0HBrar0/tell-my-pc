@@ -115,6 +115,7 @@ class ExecRequest:
     policy_path: str
     """JSON policy spec the PreToolUse hook enforces."""
     resume_session_id: str | None = None
+    branch: str | None = None
     timeout_s: float = 3600
     env: dict[str, str] = field(default_factory=dict)
 
