@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security problem?** Don't file it here. Use private reporting (see SECURITY.md).
+        Never paste tokens, secrets or real config with secrets in it.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. tell-my-pc send 'run the tests'\n2. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: "`tell-my-pc check`, the daemon log, or `tell-my-pc audit --task <id>` (secrets removed)."
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: tell-my-pc version / commit
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: "`claude --version`"
