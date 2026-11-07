@@ -29,18 +29,26 @@ Windows firewall: the first `tell-my-pc serve` may show a firewall prompt. Allow
 1. Install **Tailscale** from the App Store and sign in with the **same** account.
 2. Turn it on once and check your computer shows as connected.
 
-## 3. VPN On Demand for `*.ts.net`
+## 3. Keep the phone connected when Siri needs it
 
-So Siri works without you opening the Tailscale app first:
+The Shortcut reaches your computer through Tailscale, so the iPhone must be connected to
+Tailscale at that moment. There is **no domain field to fill in**: Tailscale recognises
+`*.ts.net` addresses by itself. Pick one option.
 
-1. iPhone **Settings** → **VPN** (or **General** → **VPN & Device Management** → **VPN**).
-2. Tap the **(i)** next to **Tailscale**.
-3. Turn on **Connect On Demand**.
-4. In the Tailscale app: **Settings** → **VPN On Demand** (iOS app 1.50 or later). Add a rule:
-   - **Domain**: `ts.net` (matches every `*.ts.net` name), action **Connect**.
-   - Leave other networks on the default.
+**Easiest: leave Tailscale on.** Open the Tailscale app and turn the main switch on
+(**Connected**). While it is on, the app keeps the connection up by itself, across restarts
+and Wi-Fi/mobile changes.
 
-Now any request to `*.ts.net`, including the Shortcut, brings the tunnel up by itself.
+**Optional: connect only when needed** (Tailscale for iOS 1.48 or newer):
+
+1. In the Tailscale app, tap your **profile picture** (top right).
+2. Tap **VPN On Demand** and turn it on. (Missing? Update the app from the App Store.)
+3. Set **Wi-Fi** to **Do Nothing** and **Cellular** to **Do Nothing**.
+
+With every rule on **Do Nothing**, iOS brings Tailscale up whenever something, such as the
+Shortcut, opens a `*.ts.net` address ("MagicDNS hostname matching" in
+[Tailscale's docs](https://tailscale.com/kb/1291/ios-vpn-on-demand)). Any other rule turns
+that matching off, and **Never** stops Tailscale from connecting at all.
 
 ## 4. Test
 
