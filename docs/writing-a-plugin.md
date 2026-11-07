@@ -15,8 +15,7 @@ The reference is [`examples/plugins/file-notifier`](../examples/plugins/file-not
 ## 1. The factory
 
 ```python
-def create(options: dict, ctx) -> MyNotifier:
-    ...
+def create(options: dict, ctx) -> MyNotifier: ...
 ```
 
 - `options` is the `options:` mapping from the user's config, unchanged.
@@ -31,8 +30,9 @@ It needs two class attributes and the methods of its interface:
 ```python
 from typing import ClassVar
 
+
 class MyNotifier:
-    api_version: ClassVar[str] = "0.2"   # the plugin API you wrote against
+    api_version: ClassVar[str] = "0.2"  # the plugin API you wrote against
     name: ClassVar[str] = "mine"
 
     async def send(self, note) -> None:  # note: tell_my_pc.plugins.api.Notification
