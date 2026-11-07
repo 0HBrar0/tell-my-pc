@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from ...hook import evaluate
-from ...policy import PolicySpec, split_shell
+from ...policy import DELIVER_TOOL, PolicySpec, split_shell
 from ..api import PLUGIN_API_VERSION, ExecEvent, ExecRequest, ExecResult, OnEvent
 
 DEFAULT_SCRIPT: list[dict[str, Any]] = [
@@ -76,7 +76,7 @@ class FakeExecutor:
                     await on_event(ExecEvent("denied", {"tool": tool, "reason": d.reason}))
                     not_done.append({"item": f"{tool} {_brief(ti)}", "reason": d.reason})
                     continue
-                ok, msg = await asyncio.to_thread(_apply, tool, ti, req.cwd)
+                ok, msg = await asyncio.to_thread(_apply, tool, ti, req.cwd, spec)
                 (done if ok else errors).append(msg)
         summary = " ".join(said) or "Fake run finished."
         return ExecResult(
@@ -100,7 +100,7 @@ def _brief(ti: dict[str, Any]) -> str:
     return str(ti.get("command") or ti.get("file_path") or ti.get("url") or "")[:80]
 
 
-def _apply(tool: str, ti: dict[str, Any], cwd: str) -> tuple[bool, str]:
+def _apply(tool: str, ti: dict[str, Any], cwd: str, spec: PolicySpec) -> tuple[bool, str]:
     if tool == "Write":
         p = Path(cwd, str(ti["file_path"]))
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +111,14 @@ def _apply(tool: str, ti: dict[str, Any], cwd: str) -> tuple[bool, str]:
         text = p.read_text(encoding="utf-8")
         p.write_text(text.replace(str(ti["old_string"]), str(ti["new_string"]), 1), "utf-8")
         return True, f"edited {ti['file_path']}"
+    if tool == DELIVER_TOOL:
+        from ...delivery import DeliveryRefused
+        from ...mcp_server import Server
+
+        try:
+            return True, Server(spec).deliver_file(ti)
+        except DeliveryRefused as e:
+            return False, f"Refused: {e}"
     if tool in ("Bash", "PowerShell"):
         segments = split_shell(str(ti["command"]))
         if isinstance(segments, str):

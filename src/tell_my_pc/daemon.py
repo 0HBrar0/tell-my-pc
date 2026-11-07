@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import gitops, paths
+from . import delivery, gitops, paths
 from .config import Config, ProjectConfig
 from .plugins.api import (
     Action,
@@ -271,13 +271,55 @@ class Daemon:
     # ------------------------------------------------------------------ approvals
 
     async def _approval_loop(self) -> None:
+        """Pushes approval requests and queued files written by the hook / MCP server."""
         while True:
             try:
                 for row in self.store.unnotified_approvals():
                     await self._send_approval(row)
+                for row in self.store.unnotified_deliveries():
+                    await self._send_file(row)
             except Exception:
-                log.exception("approval loop error")
+                log.exception("approval/delivery loop error")
             await asyncio.sleep(0.2)
+
+    async def _send_file(self, row: dict[str, object]) -> None:
+        did = str(row["id"])
+        self.store.mark_delivery_notified(did)
+        path = Path(str(row["path"]))
+        size = int(str(row["size"]))
+        t = self.store.get_task(str(row["task_id"]))
+        project = t.project if t else "tell-my-pc"
+        note = str(row.get("note") or "")
+        base = self.cfg.server.public_url
+        url = (
+            delivery.link(
+                base, delivery.load_key(self.data_dir), did, float(str(row["expires_at"]))
+            )
+            if base
+            else None
+        )
+        attach = size <= self.cfg.delivery.attach_max_mb * 1_000_000
+        mins = max(1, round((float(str(row["expires_at"])) - time.time()) / 60))
+        lines = [note] if note else []
+        if url:
+            lines.append(f"Link works for {mins} min: {url}")
+        elif not attach:
+            lines.append("Too big to attach, and no server.public_url is set for a download link.")
+        await self._notify(
+            Notification(
+                title=f"{project}: {path.name}",
+                message="\n".join(lines) or path.name,
+                tags=["paperclip"],
+                click=url,
+                kind="file",
+                attach_path=str(path) if attach else None,
+            )
+        )
+        self.store.audit(
+            "file_sent",
+            {"file": path.name, "size": size, "attached": attach, "link": bool(url)},
+            task_id=str(row["task_id"]),
+        )
 
     async def _send_approval(self, row: dict[str, object]) -> None:
         aid = str(row["id"])
@@ -380,6 +422,9 @@ class Daemon:
                 db_path=self.store.path if self.store.path != ":memory:" else None,
                 approvals=self.approvals_enabled,
                 approval_timeout_s=pol.approval_timeout_s,
+                delivery_roots=[str(Path(r).expanduser()) for r in self.cfg.delivery.roots],
+                delivery_ttl_s=self.cfg.delivery.link_ttl_s,
+                delivery_max_bytes=int(self.cfg.delivery.max_file_mb * 1_000_000),
             )
             policy_path = state_dir / "policy.json"
             spec.save(policy_path)

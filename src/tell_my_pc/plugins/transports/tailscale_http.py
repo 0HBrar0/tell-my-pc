@@ -16,17 +16,20 @@ import asyncio
 import contextlib
 import hmac
 import json
+import os
 import re
 import time
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, ClassVar
 
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
+from ... import delivery
 from ...store import Store
 from ..api import PLUGIN_API_VERSION, IncomingTask, SinkReply, TaskSink
 
@@ -77,6 +80,7 @@ class TailscaleHttpTransport:
         store: Store,
         max_clock_skew_s: int = 300,
         rate_limit_per_minute: int = 20,
+        file_key: bytes | None = None,
     ) -> None:
         if not token or len(token) < 32:
             raise ValueError("bearer token must be at least 32 characters")
@@ -86,6 +90,7 @@ class TailscaleHttpTransport:
         self.store = store
         self.skew = max_clock_skew_s
         self.limiter = RateLimiter(rate_limit_per_minute)
+        self.file_key = file_key
         self.sink: TaskSink | None = None
         self._server: uvicorn.Server | None = None
         self._serve_task: asyncio.Task[None] | None = None
@@ -104,6 +109,8 @@ class TailscaleHttpTransport:
             # Approve/Deny buttons: authorised by a one-time capability token in the URL,
             # not the bearer token (which must never be stored on the ntfy server).
             Route("/approval/{aid}", self._approval, methods=["POST"]),
+            # File links: authorised by an HMAC signature with an expiry (Phase 4).
+            Route("/files/{did}", self._file, methods=["GET"]),
         ]
         return Starlette(routes=routes)
 
@@ -218,6 +225,32 @@ class TailscaleHttpTransport:
             return fail(400, "Bad approval link.")
         r = await self._sink().answer_approval(aid, decision == "approve", token)
         return reply(r, 200 if r.ok else 410)
+
+    async def _file(self, request: Request) -> Response:
+        client = request.client.host if request.client else "?"
+        if not self.limiter.allow(client):
+            return fail(429, "Too many requests.")
+        did = str(request.path_params.get("did", ""))
+        exp = request.query_params.get("exp", "")
+        sig = request.query_params.get("sig", "")
+        if (
+            self.file_key is None
+            or not re.fullmatch(r"[0-9a-f]{16}", did)
+            or not delivery.verify(self.file_key, did, exp, sig)
+        ):
+            self.store.audit("file_link_refused", {"client": client})
+            return fail(410, "This link has expired or is not valid.")
+        if self.store.locked():
+            return fail(423, "tell-my-pc is locked.")
+        row = self.store.get_delivery(did)
+        if row is None:
+            return fail(410, "This link has expired or is not valid.")
+        path = Path(str(row["path"]))
+        # The file must still be the one that was checked (no swapped symlink).
+        if not path.is_file() or Path(os.path.realpath(path)) != path:
+            return fail(410, "That file is no longer available.")
+        self.store.audit("file_downloaded", {"file": path.name}, task_id=str(row["task_id"]))
+        return FileResponse(path, filename=path.name)
 
     # ------------------------------------------------------------------ lifecycle
 

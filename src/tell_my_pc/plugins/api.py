@@ -95,7 +95,9 @@ class Notification:
     tags: list[str] = field(default_factory=list)
     actions: list[Action] = field(default_factory=list)
     click: str | None = None
-    kind: Literal["report", "question", "approval", "info"] = "info"
+    kind: Literal["report", "question", "approval", "info", "file"] = "info"
+    attach_path: str | None = None
+    """A file to attach, if the notifier can (added in 0.2, optional to support)."""
 
 
 @runtime_checkable

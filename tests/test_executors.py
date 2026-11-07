@@ -88,8 +88,8 @@ def test_parse_limit() -> None:
 def fake_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     real = cc.build_args
 
-    def patched(exe, cfg, req, settings_path, sys_prompt_path):  # type: ignore[no-untyped-def]
-        args = real(exe, cfg, req, settings_path, sys_prompt_path)
+    def patched(exe, cfg, req, settings_path, sys_prompt_path, **kw):  # type: ignore[no-untyped-def]
+        args = real(exe, cfg, req, settings_path, sys_prompt_path, **kw)
         return [sys.executable, FAKE_CLAUDE, *args[1:]]
 
     monkeypatch.setattr(cc, "build_args", patched)
