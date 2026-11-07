@@ -13,7 +13,20 @@ headless mode, on its own git branch, and pushes a short report back to your pho
   on a throwaway `tmp/task-<id>` branch. It never uses `--dangerously-skip-permissions`.
 - **Honest reports.** The list of changed files comes from `git diff`, not from the model.
 
-Status: early development (Phase 1 · MVP). Not ready for daily use yet.
+Status: Phase 1 (MVP) works end to end: curl imitating the Shortcut → Claude runs and fixes
+tests on a task branch → ntfy report. Phone approvals (Phase 2) are next. Not ready for daily
+use yet.
+
+## How it is contained
+
+| Tier | Allowed without asking |
+|---|---|
+| Read | Read, Grep, Glob, WebSearch, WebFetch inside the project |
+| Work | Read tier + edits inside the project + allowlisted commands (tests, builds, `git status/diff/commit`) |
+| Approve | anything else needs a tap on the phone (Phase 2; until then: denied) |
+| Never | system folders, credential files (incl. Claude's own login), the daemon's config, disk/registry tools, nested shells |
+
+Enforced by a PreToolUse hook on every tool call ([ADR 0002](docs/decisions/0002-enforce-tiers-with-a-pretooluse-hook.md)).
 
 ## Quick start (development)
 
