@@ -77,12 +77,19 @@ once with `GIT_CONFIG_GLOBAL=/dev/null` (a global gitignore can hide bugs CI wil
 
 Phase 1 · MVP — done (2026-11-07). The curl E2E against real `claude` passed on Windows.
 
-Phase 2 · Control — next:
-1. Approve tier: `approval_client.request_approval` (hook side) posts to the daemon on
-   loopback; daemon stores an approval with a one-time capability token, sends ntfy
-   Approve/Deny buttons to `server.public_url/approval/<id>/<token>`; timeout = deny.
-2. Project aliases are already fuzzy-matched (`resolver.py`); add ask-back reply flow.
-3. Audit log CLI (`tell-my-pc audit`), `lock` kill switch, Windows Task Scheduler autostart.
+Phase 2 · Control — done (2026-11-07). Approvals go through the shared SQLite DB and one-time
+capability links (ADR 0004); timeout = deny; lock/unlock, audit, autostart CLI. Verified once
+against real `claude` (hook held a Bash call, ran it after Approve).
+
+Phase 3 · Plugin API and contributor kit — next (issues #19–#23):
+1. Entry-point plugin discovery (`tell_my_pc.plugins` group per kind), `api_compatible` check
+   at load, config `type:` picks a plugin by name. Plugin API is 0.2 (see `plugins/api.py`).
+2. ntfy-inbox transport: subscribe to an authenticated topic; the config check must refuse
+   public/unauthenticated inbox topics. Needs the same timestamp/nonce rules as HTTP.
+3. CONTRIBUTING.md, SECURITY.md, docs/threat-model.md, issue/PR templates,
+   docs/writing-a-plugin.md.
+4. Done when an out-of-tree sample notifier plugin (e.g. `examples/plugins/file-notifier`)
+   works with zero core changes, proven by a test that installs it.
 
 Waiting on the user: Tailscale login on this PC and the phone, an ntfy account + token, and
 building the iOS Shortcut (docs/setup).
