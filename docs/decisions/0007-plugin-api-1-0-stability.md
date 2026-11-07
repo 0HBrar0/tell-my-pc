@@ -1,6 +1,6 @@
-# 0007: Plugin API 1.0 and what "stable" means
+# 0007 · Plugin API 1.0 and what "stable" means
 
-Status: accepted (2026-11-07)
+Status: accepted · 2026-11-07
 
 ## Context
 

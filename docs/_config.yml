@@ -1,0 +1,11 @@
+title: tell-my-pc
+description: 'Say "Hey Siri, Tell Claude" on your iPhone; your own computer runs the task with Claude Code.'
+theme: jekyll-theme-cayman
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
+markdown: kramdown
+kramdown:
+  input: GFM

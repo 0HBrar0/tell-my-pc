@@ -10,7 +10,7 @@ factory under an entry-point group. Core never needs to change for a new plugin.
 | Executor | `tell_my_pc.executors` | `Executor` | `executor: {type: ...}` |
 | Delivery | `tell_my_pc.delivery` | `Delivery` | Phase 4 |
 
-The reference is [`examples/plugins/file-notifier`](../examples/plugins/file-notifier).
+The reference is [`examples/plugins/file-notifier`](https://github.com/0HBrar0/tell-my-pc/tree/main/examples/plugins/file-notifier).
 
 ## 1. The factory
 
