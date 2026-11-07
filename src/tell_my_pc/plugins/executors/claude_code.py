@@ -79,7 +79,7 @@ def find_git_bash(configured: str | None) -> str | None:
     return None
 
 
-def hook_handler(policy_path: str) -> dict[str, Any]:
+def hook_handler(policy_path: str, timeout_s: float = 600) -> dict[str, Any]:
     """Exec-form hook: Claude Code spawns our Python directly with argv, no shell, so no
     quoting issues and no Git Bash dependency. ``onFailure: block`` keeps it fail-closed."""
     return {
@@ -87,13 +87,15 @@ def hook_handler(policy_path: str) -> dict[str, Any]:
         "command": sys.executable,
         "args": ["-m", "tell_my_pc.hook", "--policy", str(Path(policy_path))],
         "onFailure": "block",
-        "timeout": 600,
+        "timeout": int(timeout_s),
     }
 
 
-def build_settings(policy_path: str) -> dict[str, Any]:
+def build_settings(policy_path: str, approval_timeout_s: float = 300) -> dict[str, Any]:
+    # The hook may wait for a phone approval, so it must outlive the approval timeout.
+    handler = hook_handler(policy_path, max(600, approval_timeout_s + 120))
     return {
-        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [hook_handler(policy_path)]}]},
+        "hooks": {"PreToolUse": [{"matcher": "*", "hooks": [handler]}]},
         "permissions": {"defaultMode": "dontAsk"},
     }
 
@@ -153,7 +155,12 @@ class ClaudeCodeExecutor:
         exe = find_claude(self.cfg.claude_path)
         state = Path(req.policy_path).parent
         settings_path = state / "claude-settings.json"
-        settings_path.write_text(json.dumps(build_settings(req.policy_path)), encoding="utf-8")
+        spec_timeout = json.loads(Path(req.policy_path).read_text(encoding="utf-8")).get(
+            "approval_timeout_s", 300
+        )
+        settings_path.write_text(
+            json.dumps(build_settings(req.policy_path, float(spec_timeout))), encoding="utf-8"
+        )
         sp_path = state / "system-prompt.md"
         sp_path.write_text(system_prompt(req.tier, req.branch), encoding="utf-8")
         args = build_args(exe, self.cfg, req, str(settings_path), str(sp_path))

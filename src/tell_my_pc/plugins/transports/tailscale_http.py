@@ -100,6 +100,10 @@ class TailscaleHttpTransport:
             Route("/continue", self._guard(self._continue), methods=["POST"]),
             Route("/status", self._guard(self._status), methods=["GET", "POST"]),
             Route("/stop", self._guard(self._stop), methods=["POST"]),
+            Route("/lock", self._guard(self._lock), methods=["POST"]),
+            # Approve/Deny buttons: authorised by a one-time capability token in the URL,
+            # not the bearer token (which must never be stored on the ntfy server).
+            Route("/approval/{aid}", self._approval, methods=["POST"]),
         ]
         return Starlette(routes=routes)
 
@@ -194,6 +198,26 @@ class TailscaleHttpTransport:
         b = await self._body(request)
         r = await self._sink().stop(_str(b.get("id")) or None, _str(b.get("project")) or None)
         return reply(r)
+
+    async def _lock(self, request: Request) -> JSONResponse:
+        b = await self._body(request)
+        return reply(await self._sink().lock(_str(b.get("reason")) or "locked from the phone"))
+
+    async def _approval(self, request: Request) -> JSONResponse:
+        client = request.client.host if request.client else "?"
+        if not self.limiter.allow(client):
+            return fail(429, "Too many requests.")
+        aid = str(request.path_params.get("aid", ""))
+        decision = request.query_params.get("d", "")
+        token = request.query_params.get("t", "")
+        if (
+            decision not in ("approve", "deny")
+            or not token
+            or not re.fullmatch(r"[0-9a-f]{12}", aid)
+        ):
+            return fail(400, "Bad approval link.")
+        r = await self._sink().answer_approval(aid, decision == "approve", token)
+        return reply(r, 200 if r.ok else 410)
 
     # ------------------------------------------------------------------ lifecycle
 

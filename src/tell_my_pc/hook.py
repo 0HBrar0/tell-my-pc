@@ -22,7 +22,7 @@ from .policy import WEB_TOOLS, Decision, PolicySpec, decide
 def resolve_ask(spec: PolicySpec, event: dict[str, Any], d: Decision) -> Decision:
     """Turn an ``ask`` into allow/deny. Asks the daemon for a phone approval if one is
     configured; with no approval channel (or on timeout) the answer is deny."""
-    if not spec.approval_url:
+    if not spec.approvals:
         return Decision("deny", f"needs approval: {d.reason} (approvals are not enabled)")
     from .approval_client import request_approval  # only imported when needed
 
@@ -32,12 +32,26 @@ def resolve_ask(spec: PolicySpec, event: dict[str, Any], d: Decision) -> Decisio
 def evaluate(event: dict[str, Any], spec: PolicySpec) -> Decision:
     tool = str(event.get("tool_name") or "")
     tool_input = event.get("tool_input") or {}
+    if _locked(spec):
+        return Decision("deny", "tell-my-pc is locked: every action is refused")
     d = decide(spec, tool, tool_input)
     if d.verdict == "ask":
         d = resolve_ask(spec, event, d)
     if d.allowed and tool in WEB_TOOLS:
         spec.mark_web_tainted()
     return d
+
+
+def _locked(spec: PolicySpec) -> bool:
+    if not spec.db_path:
+        return False
+    from .store import Store
+
+    s = Store(spec.db_path)
+    try:
+        return s.locked() is not None
+    finally:
+        s.close()
 
 
 def _audit(spec: PolicySpec | None, event: dict[str, Any], d: Decision) -> None:

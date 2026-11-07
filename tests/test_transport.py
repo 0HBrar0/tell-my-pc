@@ -18,6 +18,7 @@ from .helpers import shortcut_headers
 class Sink:
     def __init__(self) -> None:
         self.got: list[IncomingTask] = []
+        self.answers: list[tuple[str, bool, str]] = []
 
     async def submit(self, task: IncomingTask) -> SinkReply:
         self.got.append(task)
@@ -28,6 +29,13 @@ class Sink:
 
     async def stop(self, task_id: str | None = None, project: str | None = None) -> SinkReply:
         return SinkReply(True, "Stopping.")
+
+    async def answer_approval(self, approval_id: str, approve: bool, token: str) -> SinkReply:
+        self.answers.append((approval_id, approve, token))
+        return SinkReply(token == "good", "Approved." if approve else "Denied.")
+
+    async def lock(self, reason: str = "") -> SinkReply:
+        return SinkReply(True, "Locked.")
 
 
 @pytest.fixture
@@ -127,6 +135,28 @@ async def test_too_large(server) -> None:
     async with httpx.AsyncClient() as c:
         r = await c.post(url + "/task", content="x" * 70_000, headers=shortcut_headers())
     assert r.status_code == 400
+
+
+async def test_approval_link_uses_capability_token_not_bearer(server) -> None:
+    _, sink, url = server
+    async with httpx.AsyncClient() as c:
+        r = await c.post(url + "/approval/0123456789ab?d=approve&t=good")
+        assert r.status_code == 200 and r.json()["speak"] == "Approved."
+        r = await c.post(url + "/approval/0123456789ab?d=deny&t=bad")
+        assert r.status_code == 410
+        r = await c.post(url + "/approval/../etc?d=approve&t=good")
+        assert r.status_code in (400, 404)
+        r = await c.post(url + "/approval/0123456789ab?d=maybe&t=good")
+        assert r.status_code == 400
+    assert sink.answers[:2] == [("0123456789ab", True, "good"), ("0123456789ab", False, "bad")]
+
+
+async def test_lock_needs_auth(server) -> None:
+    _, _, url = server
+    async with httpx.AsyncClient() as c:
+        assert (await c.post(url + "/lock", json={})).status_code == 401
+        r = await c.post(url + "/lock", json={}, headers=shortcut_headers())
+        assert r.json()["speak"] == "Locked."
 
 
 def test_weak_token_refused(tmp_path: Path) -> None:

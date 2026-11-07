@@ -52,7 +52,9 @@ CREATE TABLE IF NOT EXISTS approvals (
     tool TEXT NOT NULL,
     detail TEXT NOT NULL,
     status TEXT NOT NULL,
-    token_hash TEXT NOT NULL,
+    token_hash TEXT NOT NULL DEFAULT '',
+    notified INTEGER NOT NULL DEFAULT 0,
+    reason TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL,
     expires_at REAL NOT NULL,
     decided_at REAL
@@ -111,6 +113,13 @@ class Store:
             c.execute("PRAGMA journal_mode=WAL")
             c.execute("PRAGMA busy_timeout=30000")
             c.executescript(SCHEMA)
+            cols = {r[1] for r in c.execute("PRAGMA table_info(approvals)")}
+            for col, ddl in (
+                ("notified", "INTEGER NOT NULL DEFAULT 0"),
+                ("reason", "TEXT NOT NULL DEFAULT ''"),
+            ):
+                if col not in cols:
+                    c.execute(f"ALTER TABLE approvals ADD COLUMN {col} {ddl}")
             c.execute(
                 "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
@@ -250,6 +259,86 @@ class Store:
                     "SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,)
                 ).fetchall()
         return [{**dict(r), "detail": json.loads(r["detail"])} for r in rows]
+
+    # ------------------------------------------------------------------ approvals
+
+    def add_approval(
+        self, task_id: str, tool: str, detail: str, reason: str, timeout_s: float
+    ) -> str:
+        aid = secrets.token_hex(6)
+        now = time.time()
+        with self._tx() as c:
+            c.execute(
+                # token_hash is set explicitly: databases created before 0.1 approvals have
+                # a NOT NULL column without a default.
+                "INSERT INTO approvals(id, task_id, tool, detail, reason, status, token_hash,"
+                " created_at, expires_at) VALUES (?,?,?,?,?, 'pending', '', ?, ?)",
+                (aid, task_id, tool, detail[:2000], reason[:500], now, now + timeout_s),
+            )
+        return aid
+
+    def get_approval(self, approval_id: str) -> dict[str, Any] | None:
+        with self._tx() as c:
+            row = c.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
+        return dict(row) if row else None
+
+    def unnotified_approvals(self) -> list[dict[str, Any]]:
+        with self._tx() as c:
+            rows = c.execute(
+                "SELECT * FROM approvals WHERE status = 'pending' AND notified = 0"
+                " AND expires_at > ? ORDER BY created_at",
+                (time.time(),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_approval_notified(self, approval_id: str, token_hash: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                "UPDATE approvals SET notified = 1, token_hash = ? WHERE id = ?",
+                (token_hash, approval_id),
+            )
+
+    def decide_approval(
+        self, approval_id: str, decision: str, token_hash: str | None = None
+    ) -> bool:
+        """Set approved/denied/expired once. With ``token_hash``, it must match and the
+        approval must not have expired. Returns False if nothing changed."""
+        if decision not in ("approved", "denied", "expired"):
+            raise ValueError(decision)
+        now = time.time()
+        sql = "UPDATE approvals SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'"
+        args: list[Any] = [decision, now, approval_id]
+        if token_hash is not None:
+            sql += " AND token_hash = ? AND token_hash != '' AND expires_at > ?"
+            args += [token_hash, now]
+        with self._tx() as c:
+            return c.execute(sql, args).rowcount == 1
+
+    def expire_task_approvals(self, task_id: str) -> None:
+        with self._tx() as c:
+            c.execute(
+                "UPDATE approvals SET status = 'expired', decided_at = ?"
+                " WHERE task_id = ? AND status = 'pending'",
+                (time.time(), task_id),
+            )
+
+    # ------------------------------------------------------------------ lock
+
+    def set_locked(self, locked: bool, reason: str = "") -> None:
+        with self._tx() as c:
+            if locked:
+                c.execute(
+                    "INSERT INTO meta(key, value) VALUES ('locked', ?) ON CONFLICT(key)"
+                    " DO UPDATE SET value = excluded.value",
+                    (json.dumps({"at": time.time(), "reason": reason}),),
+                )
+            else:
+                c.execute("DELETE FROM meta WHERE key = 'locked'")
+
+    def locked(self) -> dict[str, Any] | None:
+        with self._tx() as c:
+            row = c.execute("SELECT value FROM meta WHERE key = 'locked'").fetchone()
+        return json.loads(row[0]) if row else None
 
     # ------------------------------------------------------------------ nonces
 

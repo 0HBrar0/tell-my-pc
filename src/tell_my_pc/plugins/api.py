@@ -18,7 +18,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-PLUGIN_API_VERSION = "0.1"
+PLUGIN_API_VERSION = "0.2"
+# 0.2: TaskSink gained answer_approval() and lock().
 
 Tier = Literal["read", "work", "approve"]
 
@@ -59,6 +60,8 @@ class TaskSink(Protocol):
     async def submit(self, task: IncomingTask) -> SinkReply: ...
     async def status(self, task_id: str | None = None) -> SinkReply: ...
     async def stop(self, task_id: str | None = None, project: str | None = None) -> SinkReply: ...
+    async def answer_approval(self, approval_id: str, approve: bool, token: str) -> SinkReply: ...
+    async def lock(self, reason: str = "") -> SinkReply: ...
 
 
 @runtime_checkable
