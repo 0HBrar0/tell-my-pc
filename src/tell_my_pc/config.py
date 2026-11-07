@@ -42,24 +42,24 @@ class Secret(_Model):
 
 class ServerConfig(_Model):
     bind: str = Field(
-        "tailscale",
+        default="tailscale",
         description="'tailscale' (auto-detect this machine's Tailscale IP), a Tailscale IP, "
         "or 127.0.0.1 for local testing. All-interface binds are refused.",
     )
-    port: int = Field(8787, ge=0, le=65535, description="0 picks a free port (tests).")
+    port: int = Field(default=8787, ge=0, le=65535, description="0 picks a free port (tests).")
     token: Secret = Field(default_factory=lambda: Secret(env="TELL_MY_PC_TOKEN"))
-    max_clock_skew_s: int = Field(300, ge=10, le=3600)
-    rate_limit_per_minute: int = Field(20, ge=1, le=600)
+    max_clock_skew_s: int = Field(default=300, ge=10, le=3600)
+    rate_limit_per_minute: int = Field(default=20, ge=1, le=600)
     public_url: str | None = Field(
-        None,
+        default=None,
         description="How the phone reaches the daemon, e.g. https://mypc.tailnet.ts.net:8787. "
         "Used for approval callbacks and links.",
     )
 
 
 class LimitsConfig(_Model):
-    max_parallel_projects: int = Field(2, ge=1, le=16)
-    task_timeout_s: int = Field(3600, ge=30)
+    max_parallel_projects: int = Field(default=2, ge=1, le=16)
+    task_timeout_s: int = Field(default=3600, ge=30)
 
 
 class ProjectConfig(_Model):
@@ -110,11 +110,12 @@ class PolicyConfig(_Model):
         default_factory=list, description="Folders outside the project the Read tier may read."
     )
     builtin_never: bool = Field(
-        True, description="Apply the built-in Never rules (system folders, credential files)."
+        default=True,
+        description="Apply the built-in Never rules (system folders, credential files).",
     )
     never_paths: list[str] = Field(default_factory=list, description="Extra Never path globs.")
     never_commands: list[str] = Field(default_factory=list, description="Extra Never programs.")
-    approval_timeout_s: int = Field(300, ge=10, le=86400)
+    approval_timeout_s: int = Field(default=300, ge=10, le=86400)
 
 
 class NtfyConfig(_Model):
@@ -126,9 +127,15 @@ class NtfyConfig(_Model):
 
 class ExecutorConfig(_Model):
     type: Literal["claude_code", "fake"] = "claude_code"
-    claude_path: str | None = Field(None, description="Path to claude; default: found on PATH.")
+    claude_path: str | None = Field(
+        default=None, description="Path to claude; default: found on PATH."
+    )
+    git_bash_path: str | None = Field(
+        default=None,
+        description="Windows only: Git Bash for Claude Code hooks. Default: found next to git.",
+    )
     model: str | None = None
-    max_turns: int | None = Field(None, ge=1)
+    max_turns: int | None = Field(default=None, ge=1)
     setting_sources: list[Literal["user", "project", "local"]] = Field(
         default_factory=lambda: ["user"],
         description="Claude settings sources to load. Project/local are off by default so a "
