@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# tell-my-pc: never commit real config or runtime state
+config.yaml
+!config/example.yaml
+*.db
+*.sqlite3
+.tell-my-pc/
