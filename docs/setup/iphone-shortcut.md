@@ -9,8 +9,8 @@ You need, from your computer:
   `tailscale status` shows the machine name, the port is `server.port` in your config)
 - the **bearer token**: printed once by `tell-my-pc init`, or `server.token` in your config
 
-Your iPhone must have the Tailscale app installed and connected (VPN On Demand makes that
-automatic, see [tailscale.md](tailscale.md)).
+Your iPhone must have the Tailscale app installed and connected (leave it on, or use
+VPN On Demand; see [tailscale.md](tailscale.md)).
 
 ## Build it (Shortcuts app, iOS 17 or later)
 
