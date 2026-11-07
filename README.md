@@ -13,9 +13,8 @@ headless mode, on its own git branch, and pushes a short report back to your pho
   on a throwaway `tmp/task-<id>` branch. It never uses `--dangerously-skip-permissions`.
 - **Honest reports.** The list of changed files comes from `git diff`, not from the model.
 
-Status: Phase 1 (MVP) works end to end: curl imitating the Shortcut → Claude runs and fixes
-tests on a task branch → ntfy report. Phone approvals (Phase 2) are next. Not ready for daily
-use yet.
+Status: **1.0.0**, stable plugin API 1.0. Docs: <https://0hbrar0.github.io/tell-my-pc/> ·
+[Changelog](CHANGELOG.md)
 
 ## How it is contained
 
@@ -23,7 +22,7 @@ use yet.
 |---|---|
 | Read | Read, Grep, Glob, WebSearch, WebFetch inside the project |
 | Work | Read tier + edits inside the project + allowlisted commands (tests, builds, `git status/diff/commit`) |
-| Approve | anything else needs a tap on the phone (Phase 2; until then: denied) |
+| Approve | anything else waits for a tap on the phone; no answer means no |
 | Never | system folders, credential files (incl. Claude's own login), the daemon's config, disk/registry tools, nested shells |
 
 Enforced by a PreToolUse hook on every tool call ([ADR 0002](docs/decisions/0002-enforce-tiers-with-a-pretooluse-hook.md)).
@@ -34,7 +33,7 @@ You need [Claude Code](https://docs.claude.com/en/docs/claude-code) (logged in) 
 [Tailscale](https://tailscale.com/download) on your computer and iPhone.
 
 ```bash
-uv tool install git+https://github.com/0HBrar0/tell-my-pc   # or: pipx install git+...
+uv tool install git+https://github.com/0HBrar0/tell-my-pc@v1.0.0   # or: pipx install git+...
 tell-my-pc setup
 ```
 
