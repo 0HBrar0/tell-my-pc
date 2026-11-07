@@ -2,7 +2,7 @@
 
 tell-my-pc lets a phone start Claude Code on your computer. This page says what it protects,
 against whom, how, and what it does **not** protect. Report gaps privately (see
-[SECURITY.md](../SECURITY.md)).
+[SECURITY.md](https://github.com/0HBrar0/tell-my-pc/blob/main/SECURITY.md)).
 
 ## What we protect
 
