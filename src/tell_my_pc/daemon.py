@@ -10,6 +10,7 @@ import logging
 import re
 import secrets
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import gitops, paths
@@ -24,6 +25,7 @@ from .plugins.api import (
     Notification,
     Notifier,
     SinkReply,
+    Tier,
 )
 from .policy import build_spec
 from .report import TaskReport
@@ -34,6 +36,17 @@ log = logging.getLogger("tell_my_pc")
 
 _CONTINUE = re.compile(r"^\s*(please\s+)?(continue|keep going|carry on|resume)\b", re.I)
 MAX_TEXT = 4000
+PENDING_ASK_S = 600
+
+
+@dataclass
+class _PendingAsk:
+    """A task waiting for the user to say which project it is for."""
+
+    text: str
+    tier: Tier | None
+    resume: bool
+    expires_at: float
 
 
 class Daemon:
@@ -59,6 +72,7 @@ class Daemon:
         self._running_projects: dict[str, str] = {}  # project -> task id
         self._scheduler: asyncio.Task[None] | None = None
         self._approvals: asyncio.Task[None] | None = None
+        self._pending_ask: _PendingAsk | None = None
         self._idle = asyncio.Event()
         self._idle.set()
 
@@ -119,15 +133,45 @@ class Daemon:
             return SinkReply(False, "That task is too long. Please keep it shorter.")
         resume = task.resume or bool(_CONTINUE.match(text))
 
+        # Answer to an earlier "Which project?": the user just says the name.
+        pending = self._pending_ask
+        self._pending_ask = None
+        if pending and not task.project and time.time() < pending.expires_at:
+            answer = resolve(self.cfg.projects, text) if len(text.split()) <= 6 else None
+            if answer and answer.project is not None:
+                self.store.audit(
+                    "project_answered", {"answer": text, "project": answer.project.name}
+                )
+                text, resume = pending.text, pending.resume
+                task = IncomingTask(
+                    text=text,
+                    project=answer.project.name,
+                    tier=pending.tier,
+                    resume=resume,
+                    source=task.source,
+                )
+
         res = resolve(self.cfg.projects, task.project, text)
         if res.project is None:
-            options = ", ".join(p.name for p in res.candidates[:5])
-            speak = f"Which project? I know {options}." if options else "No projects configured."
+            options = ", ".join(p.name for p in res.candidates[:8])
+            speak = (
+                f"Which project? I know {options}. Just say the project name."
+                if options
+                else "No projects configured."
+            )
+            self._pending_ask = _PendingAsk(
+                text=text,
+                tier=task.tier,
+                resume=resume,
+                expires_at=time.time() + PENDING_ASK_S,
+            )
+            self.store.audit("project_asked", {"text": text[:200], "reason": res.reason})
             await self._notify(
                 Notification(
                     title="tell-my-pc: which project?",
-                    message=f'For "{text[:200]}": {res.reason}. Say the project name, '
-                    f"for example: {options}.",
+                    message=f'For "{text[:200]}": {res.reason}. Say "Tell Claude" again '
+                    f"within {PENDING_ASK_S // 60} minutes with just the project name: "
+                    f"{options}.",
                     tags=["question"],
                     kind="question",
                 )

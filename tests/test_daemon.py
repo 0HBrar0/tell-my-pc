@@ -190,6 +190,55 @@ async def test_unknown_project_asks_back(
     assert notes(d).sent[-1].kind == "question"
 
 
+def _two_projects(repo: Path, tmp_path: Path) -> list[dict[str, Any]]:
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "-q", "-b", "main")
+    (other / "f").write_text("x")
+    git(other, "add", "-A")
+    git(other, "commit", "-q", "-m", "i")
+    return [
+        {"name": "website", "path": str(repo), "aliases": ["homepage"]},
+        {"name": "watcher simulator", "path": str(other), "aliases": ["simulator"]},
+    ]
+
+
+async def test_answer_which_project_by_saying_the_name(
+    make_daemon: MakeDaemon, tmp_path: Path, repo: Path
+) -> None:
+    d = make_daemon([{"say": "ok"}], projects=_two_projects(repo, tmp_path))
+    await d.start()
+    r1 = await d.submit(IncomingTask("what still needs doing?"))
+    assert not r1.ok and "Just say the project name" in r1.speak
+    r2 = await d.submit(IncomingTask("the simulator project"))
+    assert r2.ok and r2.data["project"] == "watcher simulator"
+    await d.wait_idle()
+    t = d.store.get_task(r2.data["id"])
+    assert t and t.text == "what still needs doing?"
+    kinds = [a["kind"] for a in d.store.audit_log()]
+    assert "project_asked" in kinds and "project_answered" in kinds
+
+
+async def test_pending_question_expires_and_is_single_use(
+    make_daemon: MakeDaemon, tmp_path: Path, repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tell_my_pc.daemon as D
+
+    d = make_daemon([{"say": "ok"}], projects=_two_projects(repo, tmp_path))
+    await d.start()
+    monkeypatch.setattr(D, "PENDING_ASK_S", -1)
+    await d.submit(IncomingTask("fix the bug"))
+    r = await d.submit(IncomingTask("website"))
+    # expired: "website" is treated as a new task on the website project
+    assert r.ok and d.store.get_task(r.data["id"]).text == "website"  # type: ignore[union-attr]
+    monkeypatch.setattr(D, "PENDING_ASK_S", 600)
+    await d.submit(IncomingTask("fix the bug"))
+    await d.submit(IncomingTask("Run the tests and fix the failures in the homepage"))
+    r = await d.submit(IncomingTask("simulator"))  # question was replaced, not reused
+    assert r.ok and d.store.get_task(r.data["id"]).text == "simulator"  # type: ignore[union-attr]
+    await d.wait_idle()
+
+
 async def test_status_speaks(make_daemon: MakeDaemon) -> None:
     d = make_daemon([{"say": "Everything is fine."}])
     await d.start()
