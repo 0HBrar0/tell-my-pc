@@ -28,16 +28,21 @@ use yet.
 
 Enforced by a PreToolUse hook on every tool call ([ADR 0002](docs/decisions/0002-enforce-tiers-with-a-pretooluse-hook.md)).
 
-## Quick start (development)
+## Quick start
+
+You need [Claude Code](https://docs.claude.com/en/docs/claude-code) (logged in) and
+[Tailscale](https://tailscale.com/download) on your computer and iPhone.
 
 ```bash
-uv sync
-uv run tell-my-pc init     # writes a starter config into your user config dir
-uv run tell-my-pc check
-uv run tell-my-pc serve
+uv tool install git+https://github.com/0HBrar0/tell-my-pc   # or: pipx install git+...
+tell-my-pc setup
 ```
 
-Then follow [docs/setup](docs/setup/) for the iPhone Shortcut, Tailscale and ntfy.
+`setup` finds your Tailscale address and git projects, generates the secrets, refuses unsafe
+configs, starts the daemon at logon (Windows), and opens a private page with QR codes for the
+iPhone part: the ntfy app and the "Tell Claude" Shortcut. Details: [docs/setup](docs/setup/).
+
+Development: `uv sync`, then `uv run pytest -q` (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## More
 
