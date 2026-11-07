@@ -155,6 +155,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 async def _serve(cfg: Config, host: str) -> None:
     from .daemon import Daemon
+    from .delivery import load_key
     from .plugins.transports.tailscale_http import TailscaleHttpTransport
     from .store import Store
 
@@ -170,6 +171,7 @@ async def _serve(cfg: Config, host: str) -> None:
         store,
         cfg.server.max_clock_skew_s,
         cfg.server.rate_limit_per_minute,
+        file_key=load_key(data),
     )
     extras = build_extra_transports(cfg)
     if cfg.inbox is not None:

@@ -1,5 +1,43 @@
 {
   "$defs": {
+    "DeliveryConfig": {
+      "additionalProperties": false,
+      "description": "Files a task may send to the phone (Phase 4).",
+      "properties": {
+        "attach_max_mb": {
+          "default": 2.0,
+          "description": "Send files up to this size as ntfy attachments.",
+          "maximum": 50,
+          "minimum": 0,
+          "title": "Attach Max Mb",
+          "type": "number"
+        },
+        "link_ttl_s": {
+          "default": 3600,
+          "maximum": 604800,
+          "minimum": 60,
+          "title": "Link Ttl S",
+          "type": "integer"
+        },
+        "max_file_mb": {
+          "default": 200.0,
+          "exclusiveMinimum": 0,
+          "maximum": 4096,
+          "title": "Max File Mb",
+          "type": "number"
+        },
+        "roots": {
+          "description": "Extra folders whose files tasks may send you, e.g. your Screenshots folder. The task's project folder is always allowed. Tasks may also read these.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Roots",
+          "type": "array"
+        }
+      },
+      "title": "DeliveryConfig",
+      "type": "object"
+    },
     "ExecutorConfig": {
       "additionalProperties": false,
       "properties": {
@@ -377,6 +415,9 @@
       },
       "title": "Also Notify",
       "type": "array"
+    },
+    "delivery": {
+      "$ref": "#/$defs/DeliveryConfig"
     },
     "executor": {
       "$ref": "#/$defs/ExecutorConfig"

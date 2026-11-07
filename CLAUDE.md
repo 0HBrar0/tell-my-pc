@@ -88,15 +88,22 @@ Phase 3 · Plugin API and contributor kit — done (2026-11-07). Entry-point reg
 (refuses open topics at start-up), CONTRIBUTING, SECURITY, `docs/threat-model.md`,
 `docs/writing-a-plugin.md`, issue/PR templates. Plugin API 0.2.
 
-Phase 4 · Files — next (issues #24–#27):
-1. A small local MCP server exposing `deliver_file(path)` to Claude, passed with
-   `--mcp-config` (keep `--strict-mcp-config`), limited to allowlisted roots (new
-   `delivery.roots` config); the policy hook must allow `mcp__tell_my_pc__deliver_file` and
-   still apply Never rules to the path.
-2. HMAC-signed expiring links (`/files/<id>?exp=&sig=`) served by the Tailscale transport;
-   key lives in the data dir, never in config.
-3. ntfy attachments for small files (PUT with `Filename` header), links for big ones.
-4. Done when "send me the latest screenshot" yields a working link that expires (test it).
+Phase 4 · Files — done (2026-11-07). Local MCP server `tell_my_pc.mcp_server`
+(`deliver_file`, `list_recent_files`) passed per task with `--mcp-config`; `delivery.roots`
+config; `deliveries` table; ntfy attachments for small files; HMAC-signed expiring links at
+`/files/<id>` (ADR 0005). Verified with real `claude`: "send me the latest screenshot" worked.
+
+Phase 5 · Fallback — next (issues #28–#31):
+1. On a usage limit (`ExecResult.limit_reset_at`, parsed in `claude_code.parse_limit`), hold
+   the task (new status `held`) and re-queue it at the reset time; say so in the report.
+2. Fallback model profiles in config (OpenAI-compatible / Ollama) for Read-tier tasks only;
+   label reports with the model used; Work tier only with per-project opt-in on `fallback/`
+   branches; Approve never.
+3. Done when a simulated limit holds a task, a Read task completes on a fallback model, and
+   both are labelled in the report.
+
+Running install on the maintainer PC: `bash /e/void/.tools/update-tell-my-pc.sh` reinstalls
+from `main` and restarts the logon task. Real config: `E:\void\.tell-my-pc\config`.
 
 Waiting on the user: Tailscale login on this PC and the phone, an ntfy account + token, and
 building the iOS Shortcut (docs/setup).

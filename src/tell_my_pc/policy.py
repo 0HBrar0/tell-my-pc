@@ -41,6 +41,9 @@ EDIT_TOOLS: dict[str, str] = {
     "NotebookEdit": "notebook_path",
 }
 WEB_TOOLS = frozenset({"WebFetch", "WebSearch"})
+MCP_SERVER_NAME = "tell_my_pc"
+DELIVER_TOOL = f"mcp__{MCP_SERVER_NAME}__deliver_file"
+RECENT_FILES_TOOL = f"mcp__{MCP_SERVER_NAME}__list_recent_files"
 SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
 # Tools with no side effects outside the conversation. Subagent tool calls are hooked too.
 SAFE_TOOLS = frozenset(
@@ -87,6 +90,9 @@ class PolicySpec:
     approvals: bool = False
     """True when a phone can answer approvals (notifier + public_url configured)."""
     approval_timeout_s: float = 300
+    delivery_roots: list[str] = field(default_factory=list)
+    delivery_ttl_s: float = 3600
+    delivery_max_bytes: int = 200_000_000
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -126,6 +132,9 @@ def build_spec(
     db_path: str | None,
     approvals: bool = False,
     approval_timeout_s: float = 300,
+    delivery_roots: list[str] | None = None,
+    delivery_ttl_s: float = 3600,
+    delivery_max_bytes: int = 200_000_000,
 ) -> PolicySpec:
     never_paths = (list(NEVER_PATHS) if builtin_never else []) + list(extra_never_paths)
     never_paths += [d.rstrip("/\\") + "/**" for d in protect_dirs]
@@ -136,13 +145,16 @@ def build_spec(
         tier=tier,
         project_dir=project_dir,
         task_id=task_id,
-        read_roots=[project_dir, *extra_read_roots],
+        read_roots=[project_dir, *extra_read_roots, *(delivery_roots or [])],
         work_commands=[c.split() for c in work_commands if c.split()],
         never_paths=never_paths,
         never_programs=never_programs,
         state_dir=state_dir,
         db_path=db_path,
         approvals=approvals,
+        delivery_roots=list(delivery_roots or []),
+        delivery_ttl_s=delivery_ttl_s,
+        delivery_max_bytes=delivery_max_bytes,
         approval_timeout_s=approval_timeout_s,
     )
 
@@ -292,6 +304,18 @@ def _decide(spec: PolicySpec, tool: str, ti: dict[str, Any]) -> Decision:
         if not checker.in_project(raw):
             return Decision("ask", f"{raw} is outside the project folder")
         return Decision("allow", "edit inside the project")
+
+    if tool == RECENT_FILES_TOOL:
+        return Decision("allow", "lists files in allowed folders only (checked by the server)")
+
+    if tool == DELIVER_TOOL:
+        raw = str(ti.get("path") or "")
+        hit = checker.never(raw) if raw else None
+        if hit:
+            return Decision("deny", f"Never rule: sending {raw} matches {hit}")
+        if raw and not checker.readable(raw):
+            return Decision("ask", f"{raw} is outside the folders tasks may send from")
+        return Decision("allow", "send a file from an allowed folder")
 
     if tool in SHELL_TOOLS:
         return _decide_shell(spec, checker, str(ti.get("command") or ""), tier_tools, tool)

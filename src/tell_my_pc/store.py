@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS audit (
     detail TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, ts REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS deliveries (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    notified INTEGER NOT NULL DEFAULT 0
+);
 """
 
 ACTIVE = ("queued", "running")
@@ -321,6 +331,39 @@ class Store:
                 " WHERE task_id = ? AND status = 'pending'",
                 (time.time(), task_id),
             )
+
+    # ------------------------------------------------------------------ deliveries
+
+    def add_delivery(
+        self, task_id: str, path: str, size: int, note: str, ttl_s: float
+    ) -> dict[str, Any]:
+        did = secrets.token_hex(8)
+        now = time.time()
+        with self._tx() as c:
+            c.execute(
+                "INSERT INTO deliveries(id, task_id, path, size, note, created_at, expires_at)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (did, task_id, path, size, note[:500], now, now + ttl_s),
+            )
+        row = self.get_delivery(did)
+        assert row is not None
+        return row
+
+    def get_delivery(self, delivery_id: str) -> dict[str, Any] | None:
+        with self._tx() as c:
+            row = c.execute("SELECT * FROM deliveries WHERE id = ?", (delivery_id,)).fetchone()
+        return dict(row) if row else None
+
+    def unnotified_deliveries(self) -> list[dict[str, Any]]:
+        with self._tx() as c:
+            rows = c.execute(
+                "SELECT * FROM deliveries WHERE notified = 0 ORDER BY created_at"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_delivery_notified(self, delivery_id: str) -> None:
+        with self._tx() as c:
+            c.execute("UPDATE deliveries SET notified = 1 WHERE id = ?", (delivery_id,))
 
     # ------------------------------------------------------------------ lock
 

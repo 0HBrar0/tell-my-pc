@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from ...config import ExecutorConfig
+from ...policy import DELIVER_TOOL, MCP_SERVER_NAME, RECENT_FILES_TOOL
 from ..api import PLUGIN_API_VERSION, ExecEvent, ExecRequest, ExecResult, OnEvent
 from .base import REPORT_SCHEMA, coerce_report, system_prompt
 
@@ -100,8 +101,26 @@ def build_settings(policy_path: str, approval_timeout_s: float = 300) -> dict[st
     }
 
 
+def build_mcp_config(policy_path: str) -> dict[str, Any]:
+    """Our own local MCP server, the only one a task gets (``--strict-mcp-config``)."""
+    return {
+        "mcpServers": {
+            MCP_SERVER_NAME: {
+                "type": "stdio",
+                "command": sys.executable,
+                "args": ["-m", "tell_my_pc.mcp_server", "--policy", str(Path(policy_path))],
+            }
+        }
+    }
+
+
 def build_args(
-    exe: str, cfg: ExecutorConfig, req: ExecRequest, settings_path: str, sys_prompt_path: str
+    exe: str,
+    cfg: ExecutorConfig,
+    req: ExecRequest,
+    settings_path: str,
+    sys_prompt_path: str,
+    mcp_config_path: str | None = None,
 ) -> list[str]:
     args = [
         exe,
@@ -116,6 +135,9 @@ def build_args(
         "--append-system-prompt-file", sys_prompt_path,
         "--json-schema", json.dumps(REPORT_SCHEMA),
     ]  # fmt: skip
+    if mcp_config_path:
+        args += ["--mcp-config", mcp_config_path]
+        args += ["--allowedTools", f"{DELIVER_TOOL},{RECENT_FILES_TOOL}"]
     if req.resume_session_id:
         args += ["--resume", req.resume_session_id]
     if cfg.model:
@@ -163,7 +185,11 @@ class ClaudeCodeExecutor:
         )
         sp_path = state / "system-prompt.md"
         sp_path.write_text(system_prompt(req.tier, req.branch), encoding="utf-8")
-        args = build_args(exe, self.cfg, req, str(settings_path), str(sp_path))
+        mcp_path = state / "mcp.json"
+        mcp_path.write_text(json.dumps(build_mcp_config(req.policy_path)), encoding="utf-8")
+        args = build_args(
+            exe, self.cfg, req, str(settings_path), str(sp_path), mcp_config_path=str(mcp_path)
+        )
 
         env = dict(os.environ)
         env.update(req.env)

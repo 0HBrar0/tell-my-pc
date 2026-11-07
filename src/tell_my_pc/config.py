@@ -57,6 +57,21 @@ class ServerConfig(_Model):
     )
 
 
+class DeliveryConfig(_Model):
+    """Files a task may send to the phone (Phase 4)."""
+
+    roots: list[str] = Field(
+        default_factory=list,
+        description="Extra folders whose files tasks may send you, e.g. your Screenshots "
+        "folder. The task's project folder is always allowed. Tasks may also read these.",
+    )
+    link_ttl_s: int = Field(default=3600, ge=60, le=7 * 86400)
+    attach_max_mb: float = Field(
+        default=2.0, ge=0, le=50, description="Send files up to this size as ntfy attachments."
+    )
+    max_file_mb: float = Field(default=200.0, gt=0, le=4096)
+
+
 class LimitsConfig(_Model):
     max_parallel_projects: int = Field(default=2, ge=1, le=16)
     task_timeout_s: int = Field(default=3600, ge=30)
@@ -203,6 +218,7 @@ class Config(_Model):
         default_factory=list,
         description="Extra notifiers that get a copy of reports and questions (no approvals).",
     )
+    delivery: DeliveryConfig = Field(default_factory=lambda: DeliveryConfig.model_validate({}))
     inbox: NtfyInboxConfig | None = Field(
         default=None, description="Optional ntfy inbox transport (Phase 3)."
     )

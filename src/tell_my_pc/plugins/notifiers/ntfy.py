@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Any, ClassVar
 
 import httpx
@@ -51,6 +53,9 @@ class NtfyNotifier:
         return body
 
     async def send(self, note: Notification) -> None:
+        if note.attach_path:
+            await self._send_attachment(note)
+            return
         headers = {"Content-Type": "application/json"}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
@@ -58,3 +63,33 @@ class NtfyNotifier:
             r = await client.post(self.server + "/", json=self.payload(note), headers=headers)
             if r.status_code >= 400:
                 raise RuntimeError(f"ntfy returned {r.status_code}: {r.text[:200]}")
+
+    async def _send_attachment(self, note: Notification) -> None:
+        """Upload the file as the message body (ntfy attachments). Title and text go in
+        query parameters, which, unlike headers, carry any characters safely."""
+        assert note.attach_path
+        path = Path(note.attach_path)
+        data = await asyncio.to_thread(path.read_bytes)
+        params: dict[str, str] = {
+            "title": note.title[:250],
+            "message": note.message or path.name,
+            "priority": str(max(1, min(5, note.priority))),
+        }
+        if note.tags:
+            params["tags"] = ",".join(note.tags)
+        if note.click:
+            params["click"] = note.click
+        headers = {"Filename": _ascii_name(path.name)}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        async with httpx.AsyncClient(timeout=120, transport=self._transport) as client:
+            r = await client.put(
+                f"{self.server}/{self.topic}", params=params, headers=headers, content=data
+            )
+            if r.status_code >= 400:
+                raise RuntimeError(f"ntfy attachment returned {r.status_code}: {r.text[:200]}")
+
+
+def _ascii_name(name: str) -> str:
+    safe = "".join(c if 32 <= ord(c) < 127 and c not in '"\\' else "_" for c in name)
+    return safe or "file"
