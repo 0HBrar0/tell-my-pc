@@ -1,6 +1,6 @@
 [project]
 name = "tell-my-pc"
-version = "0.1.0.dev0"
+version = "1.0.0"
 description = "Dictate a task on your iPhone; a daemon on your own computer runs it with Claude Code and pushes a report back."
 readme = "README.md"
 license = "MIT"
@@ -10,7 +10,12 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
     "Environment :: No Input/Output (Daemon)",
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
 ]
+keywords = ["claude", "claude-code", "siri", "ios-shortcuts", "tailscale", "ntfy", "automation"]
 dependencies = [
     "pydantic>=2.7",
     "pyyaml>=6.0",
@@ -23,6 +28,12 @@ dependencies = [
 
 [project.scripts]
 tell-my-pc = "tell_my_pc.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/0HBrar0/tell-my-pc"
+Documentation = "https://0hbrar0.github.io/tell-my-pc/"
+Issues = "https://github.com/0HBrar0/tell-my-pc/issues"
+Changelog = "https://github.com/0HBrar0/tell-my-pc/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

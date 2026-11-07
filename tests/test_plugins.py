@@ -136,7 +136,7 @@ def test_wrong_shape_refused(site: Path, tmp_path: Path) -> None:
         site,
         """
         class N:
-            api_version = "0.2"
+            api_version = "1.0"
             name = "bad"
         def create(options, ctx):
             return N()
