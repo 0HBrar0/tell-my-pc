@@ -164,6 +164,21 @@ async def _serve(cfg: Config, host: str) -> None:
         cfg.server.rate_limit_per_minute,
     )
     extras = build_extra_transports(cfg)
+    if cfg.inbox is not None:
+        from .plugins.transports.ntfy_inbox import NtfyInboxTransport
+
+        ib = cfg.inbox
+        extras.append(
+            NtfyInboxTransport(
+                ib.server,
+                ib.topic,
+                ib.token.resolve() or "",
+                ib.secret.resolve() or "",
+                store,
+                reply=daemon.notify,
+                max_clock_skew_s=cfg.server.max_clock_skew_s,
+            )
+        )
     await daemon.start()
     await transport.start(daemon)
     for t in extras:

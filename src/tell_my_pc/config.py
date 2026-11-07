@@ -125,6 +125,22 @@ class NtfyConfig(_Model):
     token: Secret | None = Field(default_factory=lambda: Secret(env="NTFY_TOKEN"))
 
 
+class NtfyInboxConfig(_Model):
+    """Receive tasks through an ntfy topic, for when the phone has no Tailscale."""
+
+    server: str = "https://ntfy.sh"
+    topic: str = Field(description="A private topic only you can read and write.")
+    token: Secret = Field(
+        default_factory=lambda: Secret(env="NTFY_INBOX_TOKEN"),
+        description="ntfy access token with read access to the topic. Required.",
+    )
+    secret: Secret = Field(
+        default_factory=lambda: Secret(env="TELL_MY_PC_INBOX_SECRET"),
+        description="Shared secret every inbox message must carry (32+ characters). It is "
+        "not the HTTP bearer token: messages are stored on the ntfy server.",
+    )
+
+
 BUILTIN_NOTIFIERS = frozenset({"ntfy"})
 BUILTIN_EXECUTORS = frozenset({"claude_code", "fake"})
 BUILTIN_TRANSPORTS = frozenset({"tailscale_http", "ntfy_inbox"})
@@ -186,6 +202,9 @@ class Config(_Model):
     also_notify: list[NtfyConfig | PluginConfig] = Field(
         default_factory=list,
         description="Extra notifiers that get a copy of reports and questions (no approvals).",
+    )
+    inbox: NtfyInboxConfig | None = Field(
+        default=None, description="Optional ntfy inbox transport (Phase 3)."
     )
     transports: list[PluginConfig] = Field(
         default_factory=list, description="Extra transport plugins, besides the Tailscale HTTP one."
@@ -296,6 +315,7 @@ def safety_problems(cfg: Config) -> list[str]:
         if not Path(p.path).expanduser().is_dir():
             problems.append(f"Project {p.name!r}: folder {p.path} does not exist.")
 
+    problems += inbox_problems(cfg)
     ntfys = [n for n in [cfg.notifier, *cfg.also_notify] if isinstance(n, NtfyConfig)]
     for n in ntfys:
         if not n.server.startswith("https://") and not _is_local_url(n.server):
@@ -305,6 +325,38 @@ def safety_problems(cfg: Config) -> list[str]:
                 "notifier.topic is short enough to guess. Use at least 12 random characters."
             )
     return problems
+
+
+INBOX_MIN_TOPIC = 24
+
+
+def inbox_problems(cfg: Config) -> list[str]:
+    """Static checks for the ntfy inbox. Anyone who can publish to the inbox topic can give
+    your computer tasks, so an open or guessable topic is refused. (At start-up the transport
+    also checks that the topic refuses anonymous access.)"""
+    ib = cfg.inbox
+    if ib is None:
+        return []
+    out: list[str] = []
+    if not ib.server.startswith("https://") and not _is_local_url(ib.server):
+        out.append("inbox.server must use https:// (or be a local address).")
+    if len(ib.topic) < INBOX_MIN_TOPIC:
+        out.append(f"inbox.topic must be at least {INBOX_MIN_TOPIC} random characters.")
+    if not ib.token.resolve():
+        out.append("inbox has no ntfy access token: an unauthenticated topic cannot be an inbox.")
+    secret = ib.secret.resolve()
+    if not secret or len(secret) < MIN_TOKEN_LEN:
+        out.append(f"inbox.secret must be set and at least {MIN_TOKEN_LEN} characters.")
+    token = cfg.server.token.resolve()
+    if secret and token and secret == token:
+        out.append("inbox.secret must differ from the HTTP bearer token.")
+    for n in [cfg.notifier, *cfg.also_notify]:
+        if isinstance(n, NtfyConfig) and n.topic == ib.topic:
+            out.append(
+                "inbox.topic is also a notifier topic: the daemon would read its own reports "
+                "as commands. Use a separate topic."
+            )
+    return out
 
 
 def safety_warnings(cfg: Config) -> list[str]:

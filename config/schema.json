@@ -138,6 +138,35 @@
       "title": "NtfyConfig",
       "type": "object"
     },
+    "NtfyInboxConfig": {
+      "additionalProperties": false,
+      "description": "Receive tasks through an ntfy topic, for when the phone has no Tailscale.",
+      "properties": {
+        "secret": {
+          "$ref": "#/$defs/Secret",
+          "description": "Shared secret every inbox message must carry (32+ characters). It is not the HTTP bearer token: messages are stored on the ntfy server."
+        },
+        "server": {
+          "default": "https://ntfy.sh",
+          "title": "Server",
+          "type": "string"
+        },
+        "token": {
+          "$ref": "#/$defs/Secret",
+          "description": "ntfy access token with read access to the topic. Required."
+        },
+        "topic": {
+          "description": "A private topic only you can read and write.",
+          "title": "Topic",
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic"
+      ],
+      "title": "NtfyInboxConfig",
+      "type": "object"
+    },
     "PluginConfig": {
       "additionalProperties": false,
       "description": "A third-party plugin found through its Python entry point (see writing-a-plugin.md).",
@@ -351,6 +380,18 @@
     },
     "executor": {
       "$ref": "#/$defs/ExecutorConfig"
+    },
+    "inbox": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NtfyInboxConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional ntfy inbox transport (Phase 3)."
     },
     "limits": {
       "$ref": "#/$defs/LimitsConfig"

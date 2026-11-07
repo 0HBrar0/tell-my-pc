@@ -46,6 +46,34 @@ Run ntfy on a machine in your tailnet (<https://docs.ntfy.sh/install/>), enable 
 
 Reports arrive as notifications titled `<project>: done (<task id>)`.
 
+## Optional: ntfy inbox (send tasks without Tailscale)
+
+If the phone can't use Tailscale, it can publish tasks to a **second, private** ntfy topic
+that the daemon subscribes to. Anyone who can publish there can give your computer tasks, so
+tell-my-pc refuses to start the inbox unless all of this holds:
+
+- The topic is reserved/protected: `GET https://ntfy.sh/<topic>/auth` **without** a token
+  must fail. On ntfy.sh this needs a reserved topic set to "Only I can publish and
+  subscribe"; on your own server, `auth-default-access: deny-all`.
+- It has an ntfy access token (`NTFY_INBOX_TOKEN`) and a shared **inbox secret** of 32+
+  characters (`TELL_MY_PC_INBOX_SECRET`), different from the HTTP bearer token. The secret
+  sits in messages on the ntfy server, which is why it is separate.
+- The topic is at least 24 random characters and is **not** your notifications topic.
+
+```yaml
+inbox:
+  server: https://ntfy.sh
+  topic: tmp-inbox-<24+ random characters>
+  token: {env: NTFY_INBOX_TOKEN}
+  secret: {env: TELL_MY_PC_INBOX_SECRET}
+```
+
+In the iOS Shortcut, change step 6 of [iphone-shortcut.md](iphone-shortcut.md): URL
+`https://ntfy.sh/<inbox topic>`, header `Authorization: Bearer <ntfy token>`, and a JSON
+body with `secret`, `ts` (Time Between Dates), `nonce` (Random Number) and `text`. There is
+no spoken reply; the answer arrives as a notification. Optional `cmd`: `status`, `stop`,
+`lock`, `continue`.
+
 ## Approve / Deny buttons
 
 When a task wants to do something outside its tier (for example `git push`), you get an
