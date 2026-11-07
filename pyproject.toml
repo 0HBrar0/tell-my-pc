@@ -1,0 +1,66 @@
+[project]
+name = "tell-my-pc"
+version = "0.1.0.dev0"
+description = "Dictate a task on your iPhone; a daemon on your own computer runs it with Claude Code and pushes a report back."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "tell-my-pc contributors" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Environment :: No Input/Output (Daemon)",
+]
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "platformdirs>=4.2",
+    "starlette>=0.37",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+tell-my-pc = "tell_my_pc.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+    "pytest>=8.2",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tell_my_pc"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = ["S101", "S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106", "S108", "S311"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "claude: needs a real, logged-in claude CLI (skipped unless TMP_RUN_CLAUDE=1)",
+]
