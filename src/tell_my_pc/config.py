@@ -57,6 +57,27 @@ class ServerConfig(_Model):
     )
 
 
+class FallbackModelConfig(_Model):
+    """An OpenAI-compatible chat endpoint (OpenAI, Ollama, LM Studio, vLLM, ...)."""
+
+    name: str
+    base_url: str = Field(description="e.g. http://127.0.0.1:11434/v1 for Ollama.")
+    model: str
+    api_key: Secret | None = None
+    max_steps: int = Field(default=12, ge=1, le=100)
+    timeout_s: int = Field(default=600, ge=10)
+    max_file_chars: int = Field(default=20_000, ge=1000, le=500_000)
+
+
+class FallbackConfig(_Model):
+    models: list[FallbackModelConfig] = Field(
+        default_factory=list, description="Tried in order when Claude is at its usage limit."
+    )
+    read_tier: bool = Field(
+        default=True, description="Run Read-tier tasks on a fallback model instead of waiting."
+    )
+
+
 class DeliveryConfig(_Model):
     """Files a task may send to the phone (Phase 4)."""
 
@@ -82,6 +103,11 @@ class ProjectConfig(_Model):
     path: str
     aliases: list[str] = Field(default_factory=list)
     default_tier: Literal["read", "work"] = "work"
+    fallback_work: bool = Field(
+        default=False,
+        description="Let Work-tier tasks in this project run on a fallback model when Claude "
+        "is at its usage limit. They run on a fallback/task-<id> branch.",
+    )
 
     @field_validator("name")
     @classmethod
@@ -218,6 +244,7 @@ class Config(_Model):
         default_factory=list,
         description="Extra notifiers that get a copy of reports and questions (no approvals).",
     )
+    fallback: FallbackConfig = Field(default_factory=lambda: FallbackConfig.model_validate({}))
     delivery: DeliveryConfig = Field(default_factory=lambda: DeliveryConfig.model_validate({}))
     inbox: NtfyInboxConfig | None = Field(
         default=None, description="Optional ntfy inbox transport (Phase 3)."
@@ -331,6 +358,9 @@ def safety_problems(cfg: Config) -> list[str]:
         if not Path(p.path).expanduser().is_dir():
             problems.append(f"Project {p.name!r}: folder {p.path} does not exist.")
 
+    for m in cfg.fallback.models:
+        if not (m.base_url.startswith("https://") or _is_local_url(m.base_url)):
+            problems.append(f"fallback model {m.name!r}: base_url must be https:// or local.")
     problems += inbox_problems(cfg)
     ntfys = [n for n in [cfg.notifier, *cfg.also_notify] if isinstance(n, NtfyConfig)]
     for n in ntfys:
@@ -387,6 +417,12 @@ def safety_warnings(cfg: Config) -> list[str]:
         )
     if n is None:
         warnings.append("No notifier configured: reports are only saved to disk.")
+    for m in cfg.fallback.models:
+        if not _is_local_url(m.base_url):
+            warnings.append(
+                f"Fallback model {m.name!r} is not on this machine or your tailnet: tasks that "
+                "use it send project file contents to that service."
+            )
     if cfg.executor.type not in BUILTIN_EXECUTORS:
         warnings.append(
             f"Executor plugin {cfg.executor.type!r} is trusted code: tell-my-pc's tiers only "

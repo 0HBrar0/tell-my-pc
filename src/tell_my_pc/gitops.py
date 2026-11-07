@@ -142,10 +142,15 @@ def prepare(project_dir: str, task_id: str, tier: str, start_from: str | None = 
         raise GitError("The repository has no commits yet. Make a first commit, then retry.")
     if not is_branch:
         base_ref = head
-    start = start_from if start_from and branch_exists(project_dir, start_from) else "HEAD"
-    base_sha = git(project_dir, "rev-parse", start).strip()
     branch = f"tmp/task-{task_id}"
     untracked = _untracked(project_dir)
+    if branch_exists(project_dir, branch):
+        # A task that was held (usage limit) and now runs again: continue its own branch.
+        base_sha = git(project_dir, "merge-base", "HEAD", branch).strip()
+        git(project_dir, "switch", "-q", branch)
+        return TaskBranch(project_dir, branch, base_ref, base_sha, is_branch, untracked)
+    start = start_from if start_from and branch_exists(project_dir, start_from) else "HEAD"
+    base_sha = git(project_dir, "rev-parse", start).strip()
     git(project_dir, "switch", "-q", "-c", branch, start)
     return TaskBranch(project_dir, branch, base_ref, base_sha, is_branch, untracked)
 

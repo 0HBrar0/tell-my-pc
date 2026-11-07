@@ -93,14 +93,15 @@ Phase 4 · Files — done (2026-11-07). Local MCP server `tell_my_pc.mcp_server`
 config; `deliveries` table; ntfy attachments for small files; HMAC-signed expiring links at
 `/files/<id>` (ADR 0005). Verified with real `claude`: "send me the latest screenshot" worked.
 
-Phase 5 · Fallback — next (issues #28–#31):
-1. On a usage limit (`ExecResult.limit_reset_at`, parsed in `claude_code.parse_limit`), hold
-   the task (new status `held`) and re-queue it at the reset time; say so in the report.
-2. Fallback model profiles in config (OpenAI-compatible / Ollama) for Read-tier tasks only;
-   label reports with the model used; Work tier only with per-project opt-in on `fallback/`
-   branches; Approve never.
-3. Done when a simulated limit holds a task, a Read task completes on a fallback model, and
-   both are labelled in the report.
+Phase 5 · Fallback — done (2026-11-07). Usage-limit detection (epoch and "resets 3pm"
+forms), `held` tasks that re-queue at reset and resume their session/branch, OpenAI-compatible
+`FallbackExecutor` (policy-checked tool loop, approvals forced off), Read tier by default,
+Work only with `fallback_work` on `fallback/task-<id>` (ADR 0006). Not yet run against a real
+local model (no Ollama on the maintainer PC).
+
+Phase 6 · v1.0 — next (issues #33–#37): setup wizard (`tell-my-pc setup`: projects, token,
+ntfy topic, Tailscale IP, firewall hint, QR phone page), pipx/uv-tool packaging, freeze
+plugin API 1.0, docs site (GitHub Pages from docs/), release notes and tag v1.0.0.
 
 Running install on the maintainer PC: `bash /e/void/.tools/update-tell-my-pc.sh` reinstalls
 from `main` and restarts the logon task. Real config: `E:\void\.tell-my-pc\config`.

@@ -35,8 +35,13 @@ TIER_TOOLS: dict[str, list[str]] = {
 
 FORBIDDEN_FLAGS = ("--dangerously-skip-permissions", "bypassPermissions")
 
-_LIMIT_RE = re.compile(r"(usage limit|limit reached|rate limit|out of (extra )?usage)", re.I)
+_LIMIT_RE = re.compile(
+    r"(usage limit|limit reached|hit your limit|rate limit|out of (extra )?usage)", re.I
+)
 _RESET_EPOCH_RE = re.compile(r"\|(\d{10})\b")
+_RESET_CLOCK_RE = re.compile(
+    r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*\(([^)]+)\))?", re.I
+)
 
 
 def find_claude(configured: str | None) -> str:
@@ -155,7 +160,39 @@ def parse_limit(text: str) -> float | None:
     if not _LIMIT_RE.search(text or ""):
         return None
     m = _RESET_EPOCH_RE.search(text)
-    return float(m.group(1)) if m else time.time() + 3600
+    if m:
+        return float(m.group(1))
+    c = _RESET_CLOCK_RE.search(text)
+    if c:
+        when = _next_clock(int(c.group(1)), int(c.group(2) or 0), c.group(3), c.group(4))
+        if when is not None:
+            return when
+    return time.time() + 3600  # unknown reset time: try again in an hour
+
+
+def _next_clock(hour: int, minute: int, ampm: str | None, tz: str | None) -> float | None:
+    """Next time the wall clock shows hour:minute (in ``tz`` if given, else local time)."""
+    from datetime import datetime, timedelta
+
+    if ampm:
+        if not 1 <= hour <= 12:
+            return None
+        hour = hour % 12 + (12 if ampm.lower() == "pm" else 0)
+    if not (0 <= hour < 24 and 0 <= minute < 60):
+        return None
+    zone = None
+    if tz:
+        try:
+            from zoneinfo import ZoneInfo
+
+            zone = ZoneInfo(tz.strip())
+        except Exception:
+            zone = None
+    now = datetime.now(zone) if zone else datetime.now().astimezone()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return target.timestamp()
 
 
 class ClaudeCodeExecutor:
