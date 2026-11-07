@@ -76,6 +76,12 @@ Or `tell-my-pc send "Review my project and tell me what still needs doing."`
 
 - **"Not authorized."**: token typo, or the phone's clock is off by more than 5 minutes, or the
   nonce field is empty. Check the three headers.
+- **"A server with the specified hostname could not be found"**: the iPhone can't resolve
+  the `.ts.net` name, even though Tailscale may be connected. Use the computer's Tailscale
+  IP instead (`tailscale ip -4` on the computer, starts with `100.`): URL
+  `http://100.x.y.z:8787/task`, and set `server.public_url` to the same base so approval
+  buttons work. Tailscale IPs stay the same. Keep Tailscale switched on, since on-demand
+  detection only reacts to `.ts.net` names.
 - **The request times out**: Tailscale is off on the phone, or the daemon is not running
   (`tell-my-pc status` on the computer).
 - **"Which project?"**: say the project name in the task ("...on the website project") or add a
