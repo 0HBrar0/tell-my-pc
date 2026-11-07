@@ -35,3 +35,8 @@ jobs:
         run: uv run pyright
       - name: Tests
         run: uv run pytest -q
+      - name: Sample plugin installs and is discovered (no core changes)
+        shell: bash
+        run: |
+          uv run --with ./examples/plugins/file-notifier tell-my-pc plugins | tee plugins.txt
+          grep -E "notifier +file +tell-my-pc-file-notifier" plugins.txt

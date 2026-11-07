@@ -54,6 +54,12 @@
           "default": null,
           "title": "Model"
         },
+        "options": {
+          "additionalProperties": true,
+          "description": "Options for an executor plugin.",
+          "title": "Options",
+          "type": "object"
+        },
         "setting_sources": {
           "description": "Claude settings sources to load. Project/local are off by default so a repo cannot widen permissions or add hooks.",
           "items": {
@@ -69,10 +75,7 @@
         },
         "type": {
           "default": "claude_code",
-          "enum": [
-            "claude_code",
-            "fake"
-          ],
+          "description": "'claude_code', 'fake' (tests), or an executor plugin's entry-point name.",
           "title": "Type",
           "type": "string"
         }
@@ -133,6 +136,28 @@
         "topic"
       ],
       "title": "NtfyConfig",
+      "type": "object"
+    },
+    "PluginConfig": {
+      "additionalProperties": false,
+      "description": "A third-party plugin found through its Python entry point (see writing-a-plugin.md).",
+      "properties": {
+        "options": {
+          "additionalProperties": true,
+          "description": "Passed to the plugin's factory as-is.",
+          "title": "Options",
+          "type": "object"
+        },
+        "type": {
+          "description": "The plugin's entry-point name.",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "PluginConfig",
       "type": "object"
     },
     "PolicyConfig": {
@@ -309,6 +334,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "also_notify": {
+      "description": "Extra notifiers that get a copy of reports and questions (no approvals).",
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/NtfyConfig"
+          },
+          {
+            "$ref": "#/$defs/PluginConfig"
+          }
+        ]
+      },
+      "title": "Also Notify",
+      "type": "array"
+    },
     "executor": {
       "$ref": "#/$defs/ExecutorConfig"
     },
@@ -321,10 +361,15 @@
           "$ref": "#/$defs/NtfyConfig"
         },
         {
+          "$ref": "#/$defs/PluginConfig"
+        },
+        {
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "description": "Main notifier: reports, questions and approval buttons.",
+      "title": "Notifier"
     },
     "policy": {
       "$ref": "#/$defs/PolicyConfig"
@@ -338,6 +383,14 @@
     },
     "server": {
       "$ref": "#/$defs/ServerConfig"
+    },
+    "transports": {
+      "description": "Extra transport plugins, besides the Tailscale HTTP one.",
+      "items": {
+        "$ref": "#/$defs/PluginConfig"
+      },
+      "title": "Transports",
+      "type": "array"
     },
     "version": {
       "const": 1,

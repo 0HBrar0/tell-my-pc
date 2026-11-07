@@ -60,7 +60,8 @@ uv run tell-my-pc check      # validate config and safety rules
 uv run tell-my-pc serve      # run the daemon
 ```
 
-Local dev on the maintainer's Windows box: uv is in `~/.local/bin`; run git-touching tests
+Local dev on the maintainer's Windows box: `source /e/void/.tools/devenv.sh` first (uv, its cache,
+Pythons and temp files all live on E:, because C: is nearly full); run git-touching tests
 once with `GIT_CONFIG_GLOBAL=/dev/null` (a global gitignore can hide bugs CI will catch).
 
 ## Layout
