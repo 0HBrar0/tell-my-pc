@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import secrets
 import subprocess
 import sys
@@ -128,7 +129,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
     log_kwargs: dict[str, object] = {}
     if args.log_file:
         args.log_file.parent.mkdir(parents=True, exist_ok=True)
-        log_kwargs["filename"] = str(args.log_file)
+        # Under pythonw (autostart) there is no console: sys.stdout/stderr are None and
+        # anything that writes to them crashes the daemon. Send them to the log file too.
+        stream = open(args.log_file, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+        sys.stdout = sys.stdout or stream
+        sys.stderr = sys.stderr or stream
+        log_kwargs["stream"] = stream
+    elif sys.stderr is None:
+        sys.stdout = sys.stderr = open(os.devnull, "w")  # noqa: SIM115
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -329,22 +337,54 @@ def cmd_audit(args: argparse.Namespace) -> int:
 TASK_NAME = "tell-my-pc"
 
 
-def autostart_command(action: str, config: Path | None = None) -> list[str]:
-    """schtasks command line for Windows autostart at user logon (not a Windows Service)."""
+def _ps_quote(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
+
+
+def autostart_script(action: str, config: Path | None = None) -> str:
+    """PowerShell for Windows autostart at user logon (Task Scheduler, not a Windows Service).
+
+    ``schtasks /SC ONLOGON`` needs admin rights; Register-ScheduledTask with a logon trigger
+    for the current user does not. The task gets explicit --config and --data-dir, so it does
+    not depend on environment variables the Task Scheduler may not have picked up yet.
+    """
+    name = _ps_quote(TASK_NAME)
     if action == "remove":
-        return ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"]
+        return f"Unregister-ScheduledTask -TaskName {name} -Confirm:$false; 'removed'"
     if action == "status":
-        return ["schtasks", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"]
+        return (
+            f"$t = Get-ScheduledTask -TaskName {name} -ErrorAction SilentlyContinue; "
+            "if ($t) { $i = $t | Get-ScheduledTaskInfo; "
+            '"state: $($t.State)  last run: $($i.LastRunTime)  result: $($i.LastTaskResult)" }'
+            " else { 'not installed' }"
+        )
     exe = Path(sys.executable)
     pyw = exe.with_name("pythonw.exe")
     runner = pyw if pyw.exists() else exe
-    tr = f'"{runner}" -m tell_my_pc.cli'
-    if config:
-        tr += f' --config "{config}"'
-    tr += f' serve --log-file "{paths.data_dir() / "daemon.log"}"'
-    # /IT: run only while the user is logged on, as that user, without storing a password.
-    return ["schtasks", "/Create", "/TN", TASK_NAME, "/SC", "ONLOGON", "/RL", "LIMITED",
-            "/IT", "/F", "/TR", tr]  # fmt: skip
+    cfg = (config or paths.config_file()).resolve()
+    data = paths.data_dir().resolve()
+    argline = (
+        f'-m tell_my_pc.cli --config "{cfg}" --data-dir "{data}" '
+        f'serve --log-file "{data / "daemon.log"}"'
+    )
+    return "\n".join(
+        [
+            "$ErrorActionPreference = 'Stop'",
+            '$user = "$env:USERDOMAIN\\$env:USERNAME"',
+            f"$a = New-ScheduledTaskAction -Execute {_ps_quote(str(runner))} "
+            f"-Argument {_ps_quote(argline)} -WorkingDirectory {_ps_quote(str(data))}",
+            "$t = New-ScheduledTaskTrigger -AtLogOn -User $user",
+            "$p = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive "
+            "-RunLevel Limited",
+            "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries "
+            "-DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) "
+            "-RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)",
+            f"Register-ScheduledTask -TaskName {name} -Action $a -Trigger $t -Principal $p "
+            "-Settings $s -Force | Out-Null",
+            f"Start-ScheduledTask -TaskName {name}",
+            "'installed and started'",
+        ]
+    )
 
 
 def cmd_autostart(args: argparse.Namespace) -> int:
@@ -352,11 +392,16 @@ def cmd_autostart(args: argparse.Namespace) -> int:
         print("Autostart is built in for Windows. On macOS/Linux use launchd or systemd --user;"
               " see docs/setup/autostart.md.", file=sys.stderr)  # fmt: skip
         return 1
-    cmd = autostart_command(args.action, args.config)
+    script = autostart_script(args.action, args.config)
     if args.dry_run:
-        print(subprocess.list2cmdline(cmd))
+        print(script)
         return 0
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    r = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     print((r.stdout or r.stderr).strip())
     return r.returncode
 
@@ -382,6 +427,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="tell-my-pc", description=__doc__)
     ap.add_argument("--version", action="version", version=__version__)
     ap.add_argument("--config", type=Path, default=None, help="config file (default: user dir)")
+    ap.add_argument(
+        "--data-dir", type=Path, default=None, help="state, reports and logs (default: user dir)"
+    )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("serve", help="run the daemon")
@@ -436,6 +484,12 @@ def main(argv: list[str] | None = None) -> int:
         p.set_defaults(func=func)
 
     args = ap.parse_args(argv)
+    # Explicit locations win over the platform defaults, for this process and its children
+    # (the policy hook protects the config and data dirs by these paths).
+    if args.data_dir:
+        os.environ["TELL_MY_PC_DATA_DIR"] = str(args.data_dir.expanduser().resolve())
+    if args.config:
+        os.environ["TELL_MY_PC_CONFIG_DIR"] = str(args.config.expanduser().resolve().parent)
     return int(args.func(args))
 
 

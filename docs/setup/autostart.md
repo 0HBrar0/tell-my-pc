@@ -2,31 +2,43 @@
 
 ## Windows (Task Scheduler, not a Windows Service)
 
-The daemon runs as you, only while you are logged in, with your own Claude login.
+The daemon runs as you, only while you are logged in, with your own Claude login. No admin
+rights are needed for the task itself.
 
-1. Secrets the daemon reads from env vars must be **user** env vars, because Task Scheduler
-   does not see variables set only in a terminal:
-
-   ```powershell
-   [Environment]::SetEnvironmentVariable("NTFY_TOKEN", "tk_...", "User")
-   ```
-
-   (Or keep `server.token.value` in your private config file, which `tell-my-pc init` does.)
-2. Check the config: `tell-my-pc check`
-3. See the exact command first, then install:
+1. Check the config: `tell-my-pc check`
+2. Look at the exact PowerShell first, then install:
 
    ```powershell
    tell-my-pc autostart install --dry-run
    tell-my-pc autostart install
    ```
 
-   This creates a task named `tell-my-pc` with trigger **At log on**, **Run only when user is
-   logged on** and normal (limited) rights. It runs `pythonw -m tell_my_pc.cli serve` with no
-   console window and logs to `daemon.log` in the data folder (`tell-my-pc paths`).
-4. Log off and on again, then `tell-my-pc status`.
+   This registers a task named `tell-my-pc` with an **At log on** trigger for your account
+   (normal, limited rights) and starts it right away. It runs
+   `pythonw -m tell_my_pc.cli --config … --data-dir … serve --log-file …` with no console
+   window. The explicit `--config` and `--data-dir` mean it doesn't depend on environment
+   variables. Logs go to `daemon.log` in the data folder (`tell-my-pc paths`).
+   (`schtasks /SC ONLOGON` would need admin rights, which is why we use
+   `Register-ScheduledTask`.)
+3. Check it: `tell-my-pc autostart status` (state `Running`), then `tell-my-pc status`.
 
-Remove it with `tell-my-pc autostart remove`; inspect it with `tell-my-pc autostart status`
-or in Task Scheduler → Task Scheduler Library → tell-my-pc.
+Secrets given as env vars (for example `NTFY_TOKEN`) must be **user** env vars, set with
+`[Environment]::SetEnvironmentVariable("NTFY_TOKEN", "tk_...", "User")`, then log off and on.
+
+Remove it with `tell-my-pc autostart remove`.
+
+### Let the phone in (Windows Firewall)
+
+Windows blocks inbound connections on the Tailscale network by default. Allow the daemon's
+port **from Tailscale addresses only**. In an **administrator** PowerShell:
+
+```powershell
+New-NetFirewallRule -DisplayName "tell-my-pc (Tailscale only)" -Direction Inbound `
+  -Protocol TCP -LocalPort 8787 -RemoteAddress 100.64.0.0/10 -Action Allow -Profile Private,Domain
+```
+
+If Windows shows a firewall prompt for `pythonw.exe` instead, you can cancel it; the rule above
+is narrower than what the prompt would create.
 
 ## macOS / Linux
 
