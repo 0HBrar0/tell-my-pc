@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import re
+import secrets
 import time
 from pathlib import Path
 
 from . import gitops, paths
 from .config import Config, ProjectConfig
 from .plugins.api import (
+    Action,
     ExecEvent,
     ExecRequest,
     ExecResult,
@@ -55,6 +58,7 @@ class Daemon:
         self._running: dict[str, asyncio.Task[None]] = {}  # task id -> asyncio task
         self._running_projects: dict[str, str] = {}  # project -> task id
         self._scheduler: asyncio.Task[None] | None = None
+        self._approvals: asyncio.Task[None] | None = None
         self._idle = asyncio.Event()
         self._idle.set()
 
@@ -74,6 +78,7 @@ class Daemon:
                     )
                 )
         self._scheduler = asyncio.create_task(self._schedule_loop(), name="tell-my-pc-scheduler")
+        self._approvals = asyncio.create_task(self._approval_loop(), name="tell-my-pc-approvals")
         self._kick.set()
 
     async def close(self) -> None:
@@ -82,10 +87,11 @@ class Daemon:
         for t in list(self._running.values()):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await t
-        if self._scheduler:
-            self._scheduler.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._scheduler
+        for bg in (self._scheduler, self._approvals):
+            if bg:
+                bg.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await bg
 
     async def wait_idle(self, timeout: float = 60) -> None:
         """Wait until nothing is queued or running (tests)."""
@@ -96,9 +102,16 @@ class Daemon:
             await asyncio.sleep(0.05)
         raise TimeoutError("daemon did not go idle")
 
+    @property
+    def approvals_enabled(self) -> bool:
+        """Phone approvals need a notifier for the buttons and a URL the phone can call."""
+        return self.notifier is not None and bool(self.cfg.server.public_url)
+
     # ------------------------------------------------------------------ TaskSink
 
     async def submit(self, task: IncomingTask) -> SinkReply:
+        if self.store.locked():
+            return SinkReply(False, "tell-my-pc is locked. Unlock it on the computer first.")
         text = (task.text or "").strip()
         if not text and not task.resume:
             return SinkReply(False, "I didn't catch a task. Please try again.")
@@ -188,6 +201,70 @@ class Daemon:
             True, f"Stopping {n} task{'s' if n != 1 else ''}.", {"ids": [t.id for t in targets]}
         )
 
+    async def answer_approval(self, approval_id: str, approve: bool, token: str) -> SinkReply:
+        decision = "approved" if approve else "denied"
+        ok = self.store.decide_approval(approval_id, decision, token_hash=_hash(token))
+        row = self.store.get_approval(approval_id) if ok else None
+        self.store.audit(
+            "approval_answer",
+            {"approval": approval_id, "decision": decision, "accepted": ok},
+            task_id=row["task_id"] if row else None,
+        )
+        if not ok:
+            return SinkReply(False, "That approval expired or was already answered.")
+        return SinkReply(True, "Approved." if approve else "Denied.")
+
+    async def lock(self, reason: str = "") -> SinkReply:
+        """Kill switch: refuse new tasks, deny every pending approval and tool call, stop
+        running tasks. Unlocking is only possible on the computer (`tell-my-pc unlock`)."""
+        self.store.set_locked(True, reason or "locked")
+        self.store.audit("locked", {"reason": reason})
+        stopped = await self.stop()
+        return SinkReply(
+            True, f"Locked. {stopped.speak} Unlock on the computer with tell-my-pc unlock."
+        )
+
+    # ------------------------------------------------------------------ approvals
+
+    async def _approval_loop(self) -> None:
+        while True:
+            try:
+                for row in self.store.unnotified_approvals():
+                    await self._send_approval(row)
+            except Exception:
+                log.exception("approval loop error")
+            await asyncio.sleep(0.2)
+
+    async def _send_approval(self, row: dict[str, object]) -> None:
+        aid = str(row["id"])
+        token = secrets.token_urlsafe(24)
+        self.store.mark_approval_notified(aid, _hash(token))
+        base = (self.cfg.server.public_url or "").rstrip("/")
+        if not self.notifier or not base:
+            self.store.decide_approval(aid, "denied")
+            return
+        t = self.store.get_task(str(row["task_id"]))
+        mins = max(1, round((float(str(row["expires_at"])) - time.time()) / 60))
+        note = Notification(
+            title=f"Approve? {t.project if t else ''} ({row['task_id']})",
+            message=f"{row['tool']}: {row['detail']}\nWhy it asks: {row['reason']}\n"
+            f"No answer in {mins} min counts as Deny.",
+            priority=5,
+            tags=["question"],
+            kind="approval",
+            actions=[
+                Action("Approve", f"{base}/approval/{aid}?d=approve&t={token}"),
+                Action("Deny", f"{base}/approval/{aid}?d=deny&t={token}"),
+            ],
+        )
+        try:
+            await self.notifier.send(note)
+        except Exception as e:
+            log.warning("could not send approval %s: %s", aid, e)
+            self.store.decide_approval(aid, "denied")  # fail closed
+        self.store.audit("approval_requested", {"approval": aid, "tool": row["tool"]},
+                         task_id=str(row["task_id"]))  # fmt: skip
+
     # ------------------------------------------------------------------ scheduling
 
     async def _schedule_loop(self) -> None:
@@ -257,6 +334,7 @@ class Daemon:
                 protect_dirs=[str(paths.config_dir()), str(self.data_dir)],
                 state_dir=str(state_dir),
                 db_path=self.store.path if self.store.path != ":memory:" else None,
+                approvals=self.approvals_enabled,
                 approval_timeout_s=pol.approval_timeout_s,
             )
             policy_path = state_dir / "policy.json"
@@ -317,6 +395,7 @@ class Daemon:
             report.notes.append(f"Claude usage limit reached; resets around {when}.")
 
     async def _finish(self, t: TaskRow, report: TaskReport, tb: gitops.TaskBranch | None) -> None:
+        self.store.expire_task_approvals(t.id)
         try:
             if tb is not None:
                 changes, problems = await asyncio.to_thread(
@@ -376,6 +455,10 @@ class Daemon:
 def _prev_branch(store: Store, project: str) -> str | None:
     s = store.get_session(project)
     return s.get("branch") if s else None
+
+
+def _hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _say_id(task_id: str) -> str:

@@ -8,6 +8,7 @@ import contextlib
 import json
 import logging
 import secrets
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -85,9 +86,14 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    log_kwargs: dict[str, object] = {}
+    if args.log_file:
+        args.log_file.parent.mkdir(parents=True, exist_ok=True)
+        log_kwargs["filename"] = str(args.log_file)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        **log_kwargs,  # type: ignore[arg-type]
     )
     try:
         cfg = _load_checked(args.config)
@@ -215,6 +221,87 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return 0 if out.get("ok") else 1
 
 
+def _store():  # type: ignore[no-untyped-def]
+    from .store import Store
+
+    return Store(paths.data_dir() / "state.db")
+
+
+def cmd_lock(args: argparse.Namespace) -> int:
+    """Lock locally (works even if the daemon is down), then tell the daemon to stop tasks."""
+    s = _store()
+    s.set_locked(True, args.reason or "locked on the computer")
+    s.audit("locked", {"reason": args.reason, "where": "cli"})
+    s.close()
+    print("Locked. Every new task and every tool call is refused until `tell-my-pc unlock`.")
+    with contextlib.suppress(Exception):
+        cfg = load(args.config)
+        _post(cfg, _client_url(cfg, None), "/lock", {"reason": args.reason or ""})
+    return 0
+
+
+def cmd_unlock(args: argparse.Namespace) -> int:
+    """Only possible on the computer itself: the phone can lock but never unlock."""
+    s = _store()
+    was = s.locked()
+    s.set_locked(False)
+    s.audit("unlocked", {"where": "cli"})
+    s.close()
+    print("Unlocked." if was else "Was not locked.")
+    return 0
+
+
+def cmd_audit(args: argparse.Namespace) -> int:
+    s = _store()
+    rows = s.audit_log(args.task, limit=args.limit)
+    s.close()
+    if args.json:
+        print(json.dumps(rows, indent=2, default=str))
+        return 0
+    for r in reversed(rows):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"]))
+        detail = json.dumps(r["detail"], default=str)
+        if len(detail) > 140:
+            detail = detail[:140] + "…"
+        print(f"{ts}  {r['task_id'] or '-':8}  {r['kind']:18}  {detail}")
+    return 0
+
+
+TASK_NAME = "tell-my-pc"
+
+
+def autostart_command(action: str, config: Path | None = None) -> list[str]:
+    """schtasks command line for Windows autostart at user logon (not a Windows Service)."""
+    if action == "remove":
+        return ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"]
+    if action == "status":
+        return ["schtasks", "/Query", "/TN", TASK_NAME, "/V", "/FO", "LIST"]
+    exe = Path(sys.executable)
+    pyw = exe.with_name("pythonw.exe")
+    runner = pyw if pyw.exists() else exe
+    tr = f'"{runner}" -m tell_my_pc.cli'
+    if config:
+        tr += f' --config "{config}"'
+    tr += f' serve --log-file "{paths.data_dir() / "daemon.log"}"'
+    # /IT: run only while the user is logged on, as that user, without storing a password.
+    return ["schtasks", "/Create", "/TN", TASK_NAME, "/SC", "ONLOGON", "/RL", "LIMITED",
+            "/IT", "/F", "/TR", tr]  # fmt: skip
+
+
+def cmd_autostart(args: argparse.Namespace) -> int:
+    if sys.platform != "win32" and not args.dry_run:
+        print("Autostart is built in for Windows. On macOS/Linux use launchd or systemd --user;"
+              " see docs/setup/autostart.md.", file=sys.stderr)  # fmt: skip
+        return 1
+    cmd = autostart_command(args.action, args.config)
+    if args.dry_run:
+        print(subprocess.list2cmdline(cmd))
+        return 0
+    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    print((r.stdout or r.stderr).strip())
+    return r.returncode
+
+
 def cmd_paths(args: argparse.Namespace) -> int:
     print(f"config: {paths.config_file()}")
     print(f"data:   {paths.data_dir()}")
@@ -229,9 +316,26 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("serve", help="run the daemon")
     p.add_argument("-v", "--verbose", action="store_true")
+    p.add_argument("--log-file", type=Path, help="log here instead of the console")
     p.set_defaults(func=cmd_serve)
 
     sub.add_parser("check", help="validate config and safety rules").set_defaults(func=cmd_check)
+
+    p = sub.add_parser("lock", help="kill switch: refuse all tasks and tool calls")
+    p.add_argument("--reason", default="")
+    p.set_defaults(func=cmd_lock)
+    sub.add_parser("unlock", help="undo lock (only on this computer)").set_defaults(func=cmd_unlock)
+
+    p = sub.add_parser("audit", help="show the audit log")
+    p.add_argument("--task")
+    p.add_argument("--limit", type=int, default=50)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_audit)
+
+    p = sub.add_parser("autostart", help="start the daemon at logon (Windows Task Scheduler)")
+    p.add_argument("action", choices=["install", "remove", "status"])
+    p.add_argument("--dry-run", action="store_true", help="print the command only")
+    p.set_defaults(func=cmd_autostart)
     sub.add_parser("paths", help="print config and data locations").set_defaults(func=cmd_paths)
 
     p = sub.add_parser("init", help="write a starter config into the user config dir")

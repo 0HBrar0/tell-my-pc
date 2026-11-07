@@ -46,3 +46,31 @@ def test_check_refuses_unsafe(
 def test_paths(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["paths"]) == 0
     assert "config:" in capsys.readouterr().out
+
+
+def test_lock_unlock_audit(capsys: pytest.CaptureFixture[str]) -> None:
+    from tell_my_pc import paths
+    from tell_my_pc.store import Store
+
+    assert main(["lock", "--reason", "test"]) == 0
+    s = Store(paths.data_dir() / "state.db")
+    assert s.locked()
+    s.close()
+    assert main(["audit"]) == 0
+    assert "locked" in capsys.readouterr().out
+    assert main(["unlock"]) == 0
+    s = Store(paths.data_dir() / "state.db")
+    assert s.locked() is None
+    s.close()
+
+
+def test_autostart_command() -> None:
+    from tell_my_pc.cli import autostart_command
+
+    cmd = autostart_command("install")
+    assert cmd[:3] == ["schtasks", "/Create", "/TN"]
+    assert "ONLOGON" in cmd and "/IT" in cmd and "LIMITED" in cmd
+    tr = cmd[cmd.index("/TR") + 1]
+    assert "tell_my_pc.cli" in tr and "serve" in tr and "--log-file" in tr
+    assert "dangerously" not in " ".join(cmd)
+    assert autostart_command("remove")[:2] == ["schtasks", "/Delete"]

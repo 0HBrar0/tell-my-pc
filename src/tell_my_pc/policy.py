@@ -84,7 +84,8 @@ class PolicySpec:
     state_dir: str = ""
     db_path: str | None = None
     home: str = field(default_factory=lambda: str(Path.home()))
-    approval_url: str | None = None
+    approvals: bool = False
+    """True when a phone can answer approvals (notifier + public_url configured)."""
     approval_timeout_s: float = 300
 
     def save(self, path: Path) -> None:
@@ -123,7 +124,7 @@ def build_spec(
     protect_dirs: list[str],
     state_dir: str,
     db_path: str | None,
-    approval_url: str | None = None,
+    approvals: bool = False,
     approval_timeout_s: float = 300,
 ) -> PolicySpec:
     never_paths = (list(NEVER_PATHS) if builtin_never else []) + list(extra_never_paths)
@@ -141,7 +142,7 @@ def build_spec(
         never_programs=never_programs,
         state_dir=state_dir,
         db_path=db_path,
-        approval_url=approval_url,
+        approvals=approvals,
         approval_timeout_s=approval_timeout_s,
     )
 

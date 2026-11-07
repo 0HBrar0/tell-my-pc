@@ -45,3 +45,20 @@ Run ntfy on a machine in your tailnet (<https://docs.ntfy.sh/install/>), enable 
 4. Allow notifications when asked.
 
 Reports arrive as notifications titled `<project>: done (<task id>)`.
+
+## Approve / Deny buttons
+
+When a task wants to do something outside its tier (for example `git push`), you get an
+**Approve?** notification with two buttons. Tapping one makes your phone call the daemon over
+Tailscale, so set where the phone reaches it:
+
+```yaml
+server:
+  public_url: http://<your-pc>.<tailnet>.ts.net:8787
+policy:
+  approval_timeout_s: 300   # no answer in time counts as Deny
+```
+
+Without `public_url`, anything outside the tier is denied straight away. The buttons carry a
+one-time link, never your bearer token. To stop everything at once, run the **Lock** Shortcut
+(`POST /lock`) or `tell-my-pc lock`; only `tell-my-pc unlock` on the computer undoes it.

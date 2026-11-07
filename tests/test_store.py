@@ -63,6 +63,51 @@ def test_nonce_replay(store: Store) -> None:
     assert store.use_nonce("n2", 300)
 
 
+def test_approvals(store: Store) -> None:
+    aid = store.add_approval("t1", "Bash", "git push", "not allowlisted", 60)
+    assert [a["id"] for a in store.unnotified_approvals()] == [aid]
+    # no token yet: phone answers are refused
+    assert not store.decide_approval(aid, "approved", token_hash="abc")
+    store.mark_approval_notified(aid, "abc")
+    assert store.unnotified_approvals() == []
+    assert not store.decide_approval(aid, "approved", token_hash="wrong")
+    assert store.decide_approval(aid, "approved", token_hash="abc")
+    assert not store.decide_approval(aid, "denied", token_hash="abc")  # answered once only
+    assert store.get_approval(aid)["status"] == "approved"  # type: ignore[index]
+
+
+def test_approvals_on_a_database_from_before_approvals(tmp_path: Path) -> None:
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    c = sqlite3.connect(db)
+    c.execute(
+        "CREATE TABLE approvals (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, tool TEXT NOT NULL,"
+        " detail TEXT NOT NULL, status TEXT NOT NULL, token_hash TEXT NOT NULL,"
+        " created_at REAL NOT NULL, expires_at REAL NOT NULL, decided_at REAL)"
+    )
+    c.commit()
+    c.close()
+    s = Store(db)
+    aid = s.add_approval("t1", "Bash", "git branch", "not allowlisted", 60)
+    assert s.unnotified_approvals()[0]["id"] == aid
+    s.close()
+
+
+def test_expired_approval_cannot_be_approved(store: Store) -> None:
+    aid = store.add_approval("t1", "Bash", "x", "r", -1)
+    store.mark_approval_notified(aid, "h")
+    assert not store.decide_approval(aid, "approved", token_hash="h")
+
+
+def test_lock(store: Store) -> None:
+    assert store.locked() is None
+    store.set_locked(True, "phone")
+    assert store.locked()["reason"] == "phone"  # type: ignore[index]
+    store.set_locked(False)
+    assert store.locked() is None
+
+
 def test_api_versions() -> None:
     assert api_compatible("0.1", "0.1")
     assert not api_compatible("0.2", "0.1")
