@@ -442,6 +442,10 @@ class Daemon:
                 self._running_projects.pop(t.project, None)
             self._kick.set()
 
+    async def notify(self, note: Notification) -> None:
+        """Send through the configured notifier; failures are logged, never raised."""
+        await self._notify(note)
+
     async def _notify(self, note: Notification) -> None:
         if not self.notifier:
             return
