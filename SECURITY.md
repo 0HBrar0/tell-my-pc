@@ -30,4 +30,5 @@ can do, or an attacker who already runs code as your user.
 
 ## Supported versions
 
-Only the latest release and `main` get security fixes until v1.0.
+The latest 1.x release and `main` get security fixes. When 2.0 ships, the last 1.x release
+gets security fixes for 6 more months.

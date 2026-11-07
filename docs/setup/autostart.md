@@ -42,5 +42,65 @@ is narrower than what the prompt would create.
 
 ## macOS / Linux
 
-Not built in yet. A `launchd` LaunchAgent or a `systemd --user` unit that runs
-`tell-my-pc serve` works the same way. Contributions welcome.
+`tell-my-pc autostart` is Windows-only so far, but a per-user service does the same job. Find
+the full path first with `command -v tell-my-pc` (often `~/.local/bin/tell-my-pc`) and use it
+below.
+
+### Linux (systemd user unit)
+
+Save as `~/.config/systemd/user/tell-my-pc.service`:
+
+```ini
+[Unit]
+Description=tell-my-pc daemon
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/tell-my-pc serve
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now tell-my-pc
+journalctl --user -u tell-my-pc -f      # logs
+```
+
+Secrets given as env vars go in an `Environment=NTFY_TOKEN=...` line or an
+`EnvironmentFile=` (mode 600). The unit runs only while you are logged in, which is what you
+want: it uses your own Claude login.
+
+### macOS (launchd LaunchAgent)
+
+Save as `~/Library/LaunchAgents/dev.tell-my-pc.plist`, with your user name in the paths:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>dev.tell-my-pc</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/.local/bin/tell-my-pc</string>
+    <string>serve</string>
+    <string>--log-file</string>
+    <string>/Users/YOU/Library/Logs/tell-my-pc.log</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict>
+</plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/dev.tell-my-pc.plist
+launchctl list | grep tell-my-pc
+```
+
+launchd does not read your shell profile, so `claude` must be findable: if `tell-my-pc check`
+works in Terminal but the agent can't find `claude`, set `executor.claude_path` in the config.

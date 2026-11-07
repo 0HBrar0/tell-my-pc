@@ -86,7 +86,7 @@ Phase 3 · Plugin API and contributor kit — done (2026-11-07). Entry-point reg
 (`plugins/registry.py`), `also_notify` fan-out, `tell-my-pc plugins`, sample plugin in
 `examples/plugins/file-notifier` (CI installs it with `uv run --with`), ntfy inbox transport
 (refuses open topics at start-up), CONTRIBUTING, SECURITY, `docs/threat-model.md`,
-`docs/writing-a-plugin.md`, issue/PR templates. Plugin API 0.2.
+`docs/writing-a-plugin.md`, issue/PR templates. Plugin API 0.2 (1.0 since v1.0.0).
 
 Phase 4 · Files — done (2026-11-07). Local MCP server `tell_my_pc.mcp_server`
 (`deliver_file`, `list_recent_files`) passed per task with `--mcp-config`; `delivery.roots`
@@ -99,12 +99,22 @@ forms), `held` tasks that re-queue at reset and resume their session/branch, Ope
 Work only with `fallback_work` on `fallback/task-<id>` (ADR 0006). Not yet run against a real
 local model (no Ollama on the maintainer PC).
 
-Phase 6 · v1.0 — next (issues #33–#37): setup wizard (`tell-my-pc setup`: projects, token,
-ntfy topic, Tailscale IP, firewall hint, QR phone page), pipx/uv-tool packaging, freeze
-plugin API 1.0, docs site (GitHub Pages from docs/), release notes and tag v1.0.0.
+Phase 6 · v1.0 — done (2026-11-07), released as v1.0.0. `tell-my-pc setup` wizard
+(`setup_wizard.py`: Tailscale IP, git projects, screenshots folder, token, secret ntfy topic,
+safety refusal, autostart, private QR page from `phone_page.py`), version 1.0.0 with a CI
+wheel-install check, plugin API 1.0 frozen (ADR 0007), docs site from `docs/` on GitHub
+Pages (https://0hbrar0.github.io/tell-my-pc/, `tests/test_docs.py` keeps links inside
+docs/), `CHANGELOG.md`.
+
+Releasing: bump `version` in pyproject.toml and `__version__`, add a CHANGELOG section,
+merge, then `git tag -a vX.Y.Z` on main, push the tag, `uv build` and
+`gh release create vX.Y.Z dist/*` with the CHANGELOG section as notes. Plugin API changes
+follow ADR 0007 (additive in 1.x).
+
+Next ideas (no milestone yet): real local-model run of the fallback executor, autostart for
+macOS/Linux in the CLI, PyPI publishing.
 
 Running install on the maintainer PC: `bash /e/void/.tools/update-tell-my-pc.sh` reinstalls
-from `main` and restarts the logon task. Real config: `E:\void\.tell-my-pc\config`.
-
-Waiting on the user: Tailscale login on this PC and the phone, an ntfy account + token, and
-building the iOS Shortcut (docs/setup).
+from `main` and restarts the logon task. Real config: `E:/void/.tell-my-pc/config`.
+The phone side (Tailscale, Shortcut, ntfy app on a random topic without a token) is set up and
+working; an ntfy account + token would turn on file attachments.
