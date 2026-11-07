@@ -11,7 +11,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -125,8 +125,37 @@ class NtfyConfig(_Model):
     token: Secret | None = Field(default_factory=lambda: Secret(env="NTFY_TOKEN"))
 
 
+BUILTIN_NOTIFIERS = frozenset({"ntfy"})
+BUILTIN_EXECUTORS = frozenset({"claude_code", "fake"})
+BUILTIN_TRANSPORTS = frozenset({"tailscale_http", "ntfy_inbox"})
+
+
+class PluginConfig(_Model):
+    """A third-party plugin found through its Python entry point (see writing-a-plugin.md)."""
+
+    type: str = Field(description="The plugin's entry-point name.")
+    options: dict[str, Any] = Field(
+        default_factory=dict, description="Passed to the plugin's factory as-is."
+    )
+
+    @field_validator("type")
+    @classmethod
+    def _not_builtin(cls, v: str) -> str:
+        if v in BUILTIN_NOTIFIERS | BUILTIN_TRANSPORTS:
+            raise ValueError(f"{v!r} is built in; configure it with its own section")
+        if not v.strip():
+            raise ValueError("plugin type must not be empty")
+        return v
+
+
 class ExecutorConfig(_Model):
-    type: Literal["claude_code", "fake"] = "claude_code"
+    type: str = Field(
+        default="claude_code",
+        description="'claude_code', 'fake' (tests), or an executor plugin's entry-point name.",
+    )
+    options: dict[str, Any] = Field(
+        default_factory=dict, description="Options for an executor plugin."
+    )
     claude_path: str | None = Field(
         default=None, description="Path to claude; default: found on PATH."
     )
@@ -149,7 +178,18 @@ class Config(_Model):
     limits: LimitsConfig = Field(default_factory=lambda: LimitsConfig.model_validate({}))
     projects: list[ProjectConfig]
     policy: PolicyConfig = Field(default_factory=lambda: PolicyConfig.model_validate({}))
-    notifier: NtfyConfig | None = None
+    notifier: NtfyConfig | PluginConfig | None = Field(
+        default=None,
+        union_mode="left_to_right",
+        description="Main notifier: reports, questions and approval buttons.",
+    )
+    also_notify: list[NtfyConfig | PluginConfig] = Field(
+        default_factory=list,
+        description="Extra notifiers that get a copy of reports and questions (no approvals).",
+    )
+    transports: list[PluginConfig] = Field(
+        default_factory=list, description="Extra transport plugins, besides the Tailscale HTTP one."
+    )
     executor: ExecutorConfig = Field(default_factory=lambda: ExecutorConfig.model_validate({}))
 
 
@@ -256,8 +296,8 @@ def safety_problems(cfg: Config) -> list[str]:
         if not Path(p.path).expanduser().is_dir():
             problems.append(f"Project {p.name!r}: folder {p.path} does not exist.")
 
-    if cfg.notifier is not None:
-        n = cfg.notifier
+    ntfys = [n for n in [cfg.notifier, *cfg.also_notify] if isinstance(n, NtfyConfig)]
+    for n in ntfys:
         if not n.server.startswith("https://") and not _is_local_url(n.server):
             problems.append("notifier.server must use https:// (or be a local address).")
         if len(n.topic) < 12:
@@ -272,13 +312,18 @@ def safety_warnings(cfg: Config) -> list[str]:
     if cfg.server.bind.strip() in ("127.0.0.1", "::1"):
         warnings.append("Bound to loopback: fine for testing, but your phone cannot reach it.")
     n = cfg.notifier
-    if n is not None and (n.token is None or not n.token.resolve()):
+    if isinstance(n, NtfyConfig) and (n.token is None or not n.token.resolve()):
         warnings.append(
             "ntfy has no access token: anyone who guesses the topic can read your reports. "
             "See docs/setup/ntfy.md."
         )
     if n is None:
         warnings.append("No notifier configured: reports are only saved to disk.")
+    if cfg.executor.type not in BUILTIN_EXECUTORS:
+        warnings.append(
+            f"Executor plugin {cfg.executor.type!r} is trusted code: tell-my-pc's tiers only "
+            "hold if it runs the policy hook on every tool call."
+        )
     return warnings
 
 

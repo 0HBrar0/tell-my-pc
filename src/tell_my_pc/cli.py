@@ -17,8 +17,17 @@ import httpx
 import yaml
 
 from . import __version__, paths
-from .config import Config, ConfigError, load, resolve_bind, safety_problems, safety_warnings
-from .plugins.api import Executor, Notifier
+from .config import (
+    Config,
+    ConfigError,
+    NtfyConfig,
+    PluginConfig,
+    load,
+    resolve_bind,
+    safety_problems,
+    safety_warnings,
+)
+from .plugins.api import Executor, Notifier, Transport
 
 
 def build_executor(cfg: Config) -> Executor:
@@ -26,18 +35,38 @@ def build_executor(cfg: Config) -> Executor:
         from .plugins.executors.fake import FakeExecutor
 
         return FakeExecutor()
-    from .plugins.executors.claude_code import ClaudeCodeExecutor
+    if cfg.executor.type == "claude_code":
+        from .plugins.executors.claude_code import ClaudeCodeExecutor
 
-    return ClaudeCodeExecutor(cfg.executor)
+        return ClaudeCodeExecutor(cfg.executor)
+    from .plugins import registry
+
+    return registry.load("executor", cfg.executor.type, cfg.executor.options, paths.data_dir())
+
+
+def _one_notifier(n: NtfyConfig | PluginConfig) -> Notifier:
+    if isinstance(n, NtfyConfig):
+        from .plugins.notifiers.ntfy import NtfyNotifier
+
+        return NtfyNotifier(n.server, n.topic, n.token.resolve() if n.token else None)
+    from .plugins import registry
+
+    return registry.load("notifier", n.type, n.options, paths.data_dir())
 
 
 def build_notifier(cfg: Config) -> Notifier | None:
-    n = cfg.notifier
-    if n is None:
-        return None
-    from .plugins.notifiers.ntfy import NtfyNotifier
+    main = _one_notifier(cfg.notifier) if cfg.notifier is not None else None
+    if not cfg.also_notify:
+        return main
+    from .plugins.notifiers.fanout import FanoutNotifier
 
-    return NtfyNotifier(n.server, n.topic, n.token.resolve() if n.token else None)
+    return FanoutNotifier(main, [_one_notifier(n) for n in cfg.also_notify])
+
+
+def build_extra_transports(cfg: Config) -> list[Transport]:
+    from .plugins import registry
+
+    return [registry.load("transport", t.type, t.options, paths.data_dir()) for t in cfg.transports]
 
 
 def _load_checked(path: Path | None) -> Config:
@@ -81,6 +110,16 @@ def cmd_check(args: argparse.Namespace) -> int:
         if sys.platform == "win32":
             bash = find_git_bash(cfg.executor.git_bash_path)
             print(f"git bash: {bash or 'not found (Work tier shell commands will be unavailable)'}")
+    from .plugins.registry import PluginError
+
+    try:
+        build_notifier(cfg)
+        build_extra_transports(cfg)
+        if cfg.executor.type not in ("claude_code", "fake"):
+            build_executor(cfg)
+    except PluginError as e:
+        print(f"plugin: {e}", file=sys.stderr)
+        return 1
     print("config OK")
     return 0
 
@@ -124,14 +163,19 @@ async def _serve(cfg: Config, host: str) -> None:
         cfg.server.max_clock_skew_s,
         cfg.server.rate_limit_per_minute,
     )
+    extras = build_extra_transports(cfg)
     await daemon.start()
     await transport.start(daemon)
+    for t in extras:
+        await t.start(daemon)
     logging.getLogger("tell_my_pc").info(
         "tell-my-pc %s listening on http://%s:%s", __version__, host, transport.port
     )
     try:
         await asyncio.Event().wait()
     finally:
+        for t in extras:
+            await t.close()
         await transport.close()
         await daemon.close()
         store.close()
@@ -302,6 +346,17 @@ def cmd_autostart(args: argparse.Namespace) -> int:
     return r.returncode
 
 
+def cmd_plugins(args: argparse.Namespace) -> int:
+    from .plugins import registry
+    from .plugins.api import PLUGIN_API_VERSION
+
+    print(f"plugin API {PLUGIN_API_VERSION}")
+    for info in registry.list_plugins():
+        src = "built in" if info.builtin else f"{info.distribution or '?'} ({info.target})"
+        print(f"{info.kind:10} {info.name:20} {src}")
+    return 0
+
+
 def cmd_paths(args: argparse.Namespace) -> int:
     print(f"config: {paths.config_file()}")
     print(f"data:   {paths.data_dir()}")
@@ -337,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the command only")
     p.set_defaults(func=cmd_autostart)
     sub.add_parser("paths", help="print config and data locations").set_defaults(func=cmd_paths)
+    sub.add_parser("plugins", help="list installed plugins").set_defaults(func=cmd_plugins)
 
     p = sub.add_parser("init", help="write a starter config into the user config dir")
     p.add_argument("--project", required=True, help="folder of your first project")
