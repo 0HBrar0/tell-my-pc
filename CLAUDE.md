@@ -60,9 +60,29 @@ uv run tell-my-pc check      # validate config and safety rules
 uv run tell-my-pc serve      # run the daemon
 ```
 
+Local dev on the maintainer's Windows box: uv is in `~/.local/bin`; run git-touching tests
+once with `GIT_CONFIG_GLOBAL=/dev/null` (a global gitignore can hide bugs CI will catch).
+
+## Layout
+
+- `src/tell_my_pc/policy.py` + `rules.py` + `hook.py`: tiers, Never rules, the PreToolUse hook
+- `src/tell_my_pc/daemon.py`: queue scheduler, task run, reports, notifications
+- `src/tell_my_pc/gitops.py`: task branches, files_changed from git
+- `src/tell_my_pc/plugins/`: `api.py` (versioned interfaces), executors, notifiers, transports
+- `src/tell_my_pc/config.py`: models + safety checks; `config/schema.json` is generated
+  (`uv run python -m tell_my_pc.schema`, a test fails if it is stale)
+- `docs/decisions/`: ADRs. `docs/setup/`: by-hand steps for the user. `docs/e2e.md`: manual E2E.
+
 ## Current phase and next steps
 
-Phase 1 · MVP — in progress. See the milestone on GitHub for open issues.
+Phase 1 · MVP — done (2026-11-07). The curl E2E against real `claude` passed on Windows.
 
-Next: scaffold + CI → config/schema → SQLite store → policy + hook → executors → git branches →
-HTTP transport → ntfy + reports → setup docs → curl E2E.
+Phase 2 · Control — next:
+1. Approve tier: `approval_client.request_approval` (hook side) posts to the daemon on
+   loopback; daemon stores an approval with a one-time capability token, sends ntfy
+   Approve/Deny buttons to `server.public_url/approval/<id>/<token>`; timeout = deny.
+2. Project aliases are already fuzzy-matched (`resolver.py`); add ask-back reply flow.
+3. Audit log CLI (`tell-my-pc audit`), `lock` kill switch, Windows Task Scheduler autostart.
+
+Waiting on the user: Tailscale login on this PC and the phone, an ntfy account + token, and
+building the iOS Shortcut (docs/setup).
