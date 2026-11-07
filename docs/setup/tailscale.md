@@ -39,16 +39,18 @@ Tailscale at that moment. There is **no domain field to fill in**: Tailscale rec
 (**Connected**). While it is on, the app keeps the connection up by itself, across restarts
 and Wi-Fi/mobile changes.
 
-**Optional: connect only when needed** (Tailscale for iOS 1.48 or newer):
+**Optional: connect only when needed** (Tailscale for iOS 1.48 or newer). Less reliable:
+the app warns it "will not work for all apps" and "is not immediate", so the first request
+after a while may fail and need a retry.
 
-1. In the Tailscale app, tap your **profile picture** (top right).
-2. Tap **VPN On Demand** and turn it on. (Missing? Update the app from the App Store.)
-3. Set **Wi-Fi** to **Do Nothing** and **Cellular** to **Do Nothing**.
-
-With every rule on **Do Nothing**, iOS brings Tailscale up whenever something, such as the
-Shortcut, opens a `*.ts.net` address ("MagicDNS hostname matching" in
-[Tailscale's docs](https://tailscale.com/kb/1291/ios-vpn-on-demand)). Any other rule turns
-that matching off, and **Never** stops Tailscale from connecting at all.
+1. In the Tailscale app, tap your **profile picture** (top right), then **VPN On Demand**.
+   (Missing? Update the app from the App Store.)
+2. Turn on the **VPN On Demand** switch.
+3. Under **Connect automatically on**, set **Wi-Fi** and **Cellular** to **Do Nothing**.
+   Not **Never**: that stops Tailscale from connecting at all.
+4. Under **MagicDNS**, turn on **Detect MagicDNS hostnames**. It appears only when the rules
+   are **Do Nothing**, and it brings Tailscale up when the Shortcut opens a `*.ts.net`
+   address ([Tailscale's docs](https://tailscale.com/kb/1291/ios-vpn-on-demand)).
 
 ## 4. Test
 
