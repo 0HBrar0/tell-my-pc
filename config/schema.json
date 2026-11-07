@@ -1,0 +1,341 @@
+{
+  "$defs": {
+    "ExecutorConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "claude_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path to claude; default: found on PATH.",
+          "title": "Claude Path"
+        },
+        "max_turns": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Turns"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "setting_sources": {
+          "description": "Claude settings sources to load. Project/local are off by default so a repo cannot widen permissions or add hooks.",
+          "items": {
+            "enum": [
+              "user",
+              "project",
+              "local"
+            ],
+            "type": "string"
+          },
+          "title": "Setting Sources",
+          "type": "array"
+        },
+        "type": {
+          "default": "claude_code",
+          "enum": [
+            "claude_code",
+            "fake"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ExecutorConfig",
+      "type": "object"
+    },
+    "LimitsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "max_parallel_projects": {
+          "default": 2,
+          "maximum": 16,
+          "minimum": 1,
+          "title": "Max Parallel Projects",
+          "type": "integer"
+        },
+        "task_timeout_s": {
+          "default": 3600,
+          "minimum": 30,
+          "title": "Task Timeout S",
+          "type": "integer"
+        }
+      },
+      "title": "LimitsConfig",
+      "type": "object"
+    },
+    "NtfyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "server": {
+          "default": "https://ntfy.sh",
+          "title": "Server",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "topic": {
+          "title": "Topic",
+          "type": "string"
+        },
+        "type": {
+          "const": "ntfy",
+          "default": "ntfy",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic"
+      ],
+      "title": "NtfyConfig",
+      "type": "object"
+    },
+    "PolicyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_timeout_s": {
+          "default": 300,
+          "maximum": 86400,
+          "minimum": 10,
+          "title": "Approval Timeout S",
+          "type": "integer"
+        },
+        "builtin_never": {
+          "default": true,
+          "description": "Apply the built-in Never rules (system folders, credential files).",
+          "title": "Builtin Never",
+          "type": "boolean"
+        },
+        "extra_read_roots": {
+          "description": "Folders outside the project the Read tier may read.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Extra Read Roots",
+          "type": "array"
+        },
+        "never_commands": {
+          "description": "Extra Never programs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Never Commands",
+          "type": "array"
+        },
+        "never_paths": {
+          "description": "Extra Never path globs.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Never Paths",
+          "type": "array"
+        },
+        "work_commands": {
+          "description": "Command prefixes the Work tier may run without approval.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Work Commands",
+          "type": "array"
+        }
+      },
+      "title": "PolicyConfig",
+      "type": "object"
+    },
+    "ProjectConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "default_tier": {
+          "default": "work",
+          "enum": [
+            "read",
+            "work"
+          ],
+          "title": "Default Tier",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path"
+      ],
+      "title": "ProjectConfig",
+      "type": "object"
+    },
+    "Secret": {
+      "additionalProperties": false,
+      "description": "A secret is either inline (only in the user's config dir) or read from an env var.",
+      "properties": {
+        "env": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Env"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "title": "Secret",
+      "type": "object"
+    },
+    "ServerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "bind": {
+          "default": "tailscale",
+          "description": "'tailscale' (auto-detect this machine's Tailscale IP), a Tailscale IP, or 127.0.0.1 for local testing. All-interface binds are refused.",
+          "title": "Bind",
+          "type": "string"
+        },
+        "max_clock_skew_s": {
+          "default": 300,
+          "maximum": 3600,
+          "minimum": 10,
+          "title": "Max Clock Skew S",
+          "type": "integer"
+        },
+        "port": {
+          "default": 8787,
+          "description": "0 picks a free port (tests).",
+          "maximum": 65535,
+          "minimum": 0,
+          "title": "Port",
+          "type": "integer"
+        },
+        "public_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the phone reaches the daemon, e.g. https://mypc.tailnet.ts.net:8787. Used for approval callbacks and links.",
+          "title": "Public Url"
+        },
+        "rate_limit_per_minute": {
+          "default": 20,
+          "maximum": 600,
+          "minimum": 1,
+          "title": "Rate Limit Per Minute",
+          "type": "integer"
+        },
+        "token": {
+          "$ref": "#/$defs/Secret"
+        }
+      },
+      "title": "ServerConfig",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "executor": {
+      "$ref": "#/$defs/ExecutorConfig"
+    },
+    "limits": {
+      "$ref": "#/$defs/LimitsConfig"
+    },
+    "notifier": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NtfyConfig"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "policy": {
+      "$ref": "#/$defs/PolicyConfig"
+    },
+    "projects": {
+      "items": {
+        "$ref": "#/$defs/ProjectConfig"
+      },
+      "title": "Projects",
+      "type": "array"
+    },
+    "server": {
+      "$ref": "#/$defs/ServerConfig"
+    },
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "projects"
+  ],
+  "title": "tell-my-pc config",
+  "type": "object"
+}

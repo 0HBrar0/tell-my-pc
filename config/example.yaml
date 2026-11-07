@@ -1,0 +1,55 @@
+# tell-my-pc example config.
+# Copy to your user config dir (`tell-my-pc paths` prints it) or run `tell-my-pc init`.
+# Never commit your real config. Secrets are best given as env vars.
+version: 1
+
+server:
+  # 'tailscale' binds to this machine's Tailscale IP only. 127.0.0.1 works for local testing.
+  # 0.0.0.0, :: and LAN addresses are refused.
+  bind: tailscale
+  port: 8787
+  token:
+    env: TELL_MY_PC_TOKEN        # at least 32 random characters
+  max_clock_skew_s: 300
+  rate_limit_per_minute: 20
+  # public_url: https://my-pc.tail1234.ts.net:8787
+
+limits:
+  max_parallel_projects: 2
+  task_timeout_s: 3600
+
+projects:
+  - name: website
+    path: ~/code/website
+    aliases: [web site, site, homepage]
+    default_tier: work           # read | work
+
+policy:
+  # Command prefixes the Work tier may run. Anything else needs approval (Phase 2).
+  work_commands:
+    - pytest
+    - uv run pytest
+    - npm test
+    - git status
+    - git diff
+    - git log
+    - git add
+    - git commit
+  extra_read_roots: []
+  builtin_never: true            # system folders, credential files, disk/registry tools
+  never_paths: []
+  never_commands: []
+  approval_timeout_s: 300
+
+notifier:
+  type: ntfy
+  server: https://ntfy.sh
+  topic: tell-my-pc-CHANGE-ME-to-something-random
+  token:
+    env: NTFY_TOKEN
+
+executor:
+  type: claude_code
+  # claude_path: C:/Users/me/AppData/Roaming/npm/claude.cmd
+  # model: sonnet
+  setting_sources: [user]
