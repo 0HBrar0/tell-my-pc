@@ -408,6 +408,12 @@ def cmd_autostart(args: argparse.Namespace) -> int:
     return r.returncode
 
 
+def cmd_setup(args: argparse.Namespace) -> int:
+    from .setup_wizard import run
+
+    return run(args)
+
+
 def cmd_plugins(args: argparse.Namespace) -> int:
     from .plugins import registry
     from .plugins.api import PLUGIN_API_VERSION
@@ -459,7 +465,17 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("paths", help="print config and data locations").set_defaults(func=cmd_paths)
     sub.add_parser("plugins", help="list installed plugins").set_defaults(func=cmd_plugins)
 
-    p = sub.add_parser("init", help="write a starter config into the user config dir")
+    p = sub.add_parser("setup", help="guided first-time setup (recommended)")
+    p.add_argument("--projects-dir", type=Path, help="folder that holds your git projects")
+    p.add_argument("--bind", help="override the Tailscale address (e.g. 127.0.0.1 for tests)")
+    p.add_argument("--port", type=int, default=8787)
+    p.add_argument("--yes", action="store_true", help="accept every default, no questions")
+    p.add_argument("--force", action="store_true", help="replace an existing config")
+    p.add_argument("--no-open", action="store_true", help="don't open the phone page")
+    p.add_argument("--no-autostart", action="store_true")
+    p.set_defaults(func=cmd_setup)
+
+    p = sub.add_parser("init", help="write a minimal starter config (see also: setup)")
     p.add_argument("--project", required=True, help="folder of your first project")
     p.add_argument("--name", help="spoken name of that project")
     p.add_argument("--bind", default="tailscale")
@@ -486,6 +502,12 @@ def main(argv: list[str] | None = None) -> int:
         p.set_defaults(func=func)
 
     args = ap.parse_args(argv)
+    # Windows consoles/pipes may use a legacy code page: never crash on ✓ or names.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            with contextlib.suppress(Exception):
+                reconfigure(errors="replace")
     # Explicit locations win over the platform defaults, for this process and its children
     # (the policy hook protects the config and data dirs by these paths).
     if args.data_dir:
