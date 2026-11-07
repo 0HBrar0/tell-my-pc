@@ -41,6 +41,18 @@ policy:
   never_commands: []
   approval_timeout_s: 300
 
+delivery:
+  roots: []                      # e.g. ~/Pictures/Screenshots
+  link_ttl_s: 3600
+  attach_max_mb: 2               # 0 = links only (files stay on your PC)
+
+fallback:                        # when Claude is at its usage limit
+  read_tier: true                # Read tasks may use a fallback model
+  models: []
+  # - name: local
+  #   base_url: http://127.0.0.1:11434/v1
+  #   model: qwen2.5-coder:7b
+
 notifier:
   type: ntfy
   server: https://ntfy.sh

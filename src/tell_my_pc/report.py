@@ -37,6 +37,16 @@ class TaskReport:
     finished_at: float | None = None
     notes: list[str] = field(default_factory=list)
     denied: list[str] = field(default_factory=list)
+    fallback_model: str | None = None
+    """Set when a fallback model, not Claude, did the work."""
+    held_until: float | None = None
+    """Set when the task waits for Claude's usage limit to reset."""
+
+    @property
+    def done_by(self) -> str:
+        if self.fallback_model:
+            return f"fallback model {self.fallback_model} (not Claude)"
+        return "Claude" if self.executor in ("claude_code", "") else self.executor
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -58,8 +68,11 @@ class TaskReport:
             "stopped": "The task was stopped. ",
             "refused": "I could not start the task. ",
             "interrupted": "The task was interrupted. ",
+            "held": "",
         }.get(self.status, "")
         summary = self.summary.strip() or (self.errors[0] if self.errors else "No summary.")
+        if self.fallback_model and self.status == "done":
+            head = "Claude was at its usage limit, so a backup model answered. "
         n = len(self.files_changed)
         tail = ""
         if n and self.branch and self.branch_kept:
@@ -75,6 +88,7 @@ class TaskReport:
             "stopped": ["stop_sign"],
             "refused": ["no_entry"],
             "interrupted": ["warning"],
+            "held": ["hourglass"],
         }.get(self.status, [])
         lines = [self.speak()]
         if self.not_done:
@@ -85,7 +99,8 @@ class TaskReport:
         if len(msg.encode("utf-8")) > 3800:
             msg = msg.encode("utf-8")[:3790].decode("utf-8", "ignore") + "…"
         return Notification(
-            title=f"{self.project}: {self.status} ({self.id})",
+            title=f"{self.project}: {self.status} ({self.id})"
+            + (f" via {self.fallback_model}" if self.fallback_model else ""),
             message=msg,
             priority=4 if self.status in ("failed", "refused") or self.needs_from_you else 3,
             tags=tags,
@@ -133,7 +148,7 @@ class TaskReport:
 | Branch | {branch} |
 | Started from | {self.base_ref or "-"} |
 | Session | {self.session_id or "-"}{" (resumed)" if self.resumed else ""} |
-| Executor | {self.executor} |
+| Done by | {self.done_by} |
 | Started | {started} |
 | Duration | {self.duration_s:.0f} s |
 

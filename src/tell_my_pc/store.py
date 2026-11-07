@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     base_ref TEXT,
     result_json TEXT,
     report_path TEXT,
-    error TEXT
+    error TEXT,
+    hold_until REAL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    executor TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status, created_at);
 CREATE TABLE IF NOT EXISTS sessions (
@@ -79,7 +82,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
 );
 """
 
-ACTIVE = ("queued", "running")
+ACTIVE = ("queued", "running", "held")
 FINAL = ("done", "failed", "stopped", "interrupted", "refused")
 
 
@@ -100,6 +103,9 @@ class TaskRow:
     result_json: str | None
     report_path: str | None
     error: str | None
+    hold_until: float | None = None
+    attempts: int = 0
+    executor: str | None = None
 
     @property
     def result(self) -> dict[str, Any] | None:
@@ -130,6 +136,14 @@ class Store:
             ):
                 if col not in cols:
                     c.execute(f"ALTER TABLE approvals ADD COLUMN {col} {ddl}")
+            tcols = {r[1] for r in c.execute("PRAGMA table_info(tasks)")}
+            for col, ddl in (
+                ("hold_until", "REAL"),
+                ("attempts", "INTEGER NOT NULL DEFAULT 0"),
+                ("executor", "TEXT"),
+            ):
+                if col not in tcols:
+                    c.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
             c.execute(
                 "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
@@ -179,7 +193,18 @@ class Store:
         return _task(row) if row else None
 
     _UPDATABLE = frozenset(
-        {"status", "session_id", "branch", "base_ref", "result_json", "report_path", "error"}
+        {
+            "status",
+            "session_id",
+            "branch",
+            "base_ref",
+            "result_json",
+            "report_path",
+            "error",
+            "hold_until",
+            "attempts",
+            "executor",
+        }
     )
 
     def update_task(self, task_id: str, **fields: Any) -> None:
@@ -217,6 +242,23 @@ class Store:
             else:
                 row = c.execute("SELECT * FROM tasks ORDER BY created_at DESC LIMIT 1").fetchone()
         return _task(row) if row else None
+
+    def release_held(self, now: float | None = None) -> list[str]:
+        """Held tasks whose hold time has passed go back to the queue."""
+        now = time.time() if now is None else now
+        with self._tx() as c:
+            ids = [
+                r[0]
+                for r in c.execute(
+                    "SELECT id FROM tasks WHERE status = 'held' AND hold_until <= ?", (now,)
+                )
+            ]
+            c.execute(
+                "UPDATE tasks SET status = 'queued', updated_at = ?"
+                " WHERE status = 'held' AND hold_until <= ?",
+                (now, now),
+            )
+        return ids
 
     def mark_interrupted(self) -> list[str]:
         """On startup, tasks left 'running' by a crash become 'interrupted'."""

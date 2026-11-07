@@ -10,11 +10,12 @@ import logging
 import re
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import delivery, gitops, paths
-from .config import Config, ProjectConfig
+from .config import Config, FallbackModelConfig, ProjectConfig
 from .plugins.api import (
     Action,
     ExecEvent,
@@ -24,9 +25,11 @@ from .plugins.api import (
     IncomingTask,
     Notification,
     Notifier,
+    OnEvent,
     SinkReply,
     Tier,
 )
+from .plugins.executors.fallback import FallbackExecutor
 from .policy import build_spec
 from .report import TaskReport
 from .resolver import resolve
@@ -73,6 +76,10 @@ class Daemon:
         self._scheduler: asyncio.Task[None] | None = None
         self._approvals: asyncio.Task[None] | None = None
         self._pending_ask: _PendingAsk | None = None
+        self._claude_limited_until = 0.0
+        self._fallback_factory: Callable[[FallbackModelConfig], Executor] = lambda prof: (
+            FallbackExecutor(prof)
+        )
         self._idle = asyncio.Event()
         self._idle.set()
 
@@ -193,6 +200,17 @@ class Daemon:
         self._kick.set()
         busy = project.name in self._running_projects
         when = "It will start after the current task there." if busy else "Starting now."
+        if self._claude_limited_until > time.time():
+            at = time.strftime("%H:%M", time.localtime(self._claude_limited_until))
+            can_fallback = bool(self.cfg.fallback.models) and (
+                (tier == "read" and self.cfg.fallback.read_tier)
+                or (tier == "work" and project.fallback_work)
+            )
+            when = (
+                f"Claude is at its usage limit until {at}, so a fallback model will do it."
+                if can_fallback
+                else f"Claude is at its usage limit until {at}. It will run then."
+            )
         return SinkReply(
             True,
             f"Got it. Task {_say_id(row.id)} for {project.name}. {when}",
@@ -224,15 +242,15 @@ class Daemon:
         targets: list[TaskRow] = []
         if task_id:
             t = self.store.get_task(task_id)
-            targets = [t] if t and t.status in ("queued", "running") else []
+            targets = [t] if t and t.status in ("queued", "running", "held") else []
         else:
-            for t in self.store.tasks(("queued", "running"), limit=500):
+            for t in self.store.tasks(("queued", "running", "held"), limit=500):
                 if project is None or t.project.lower() == project.lower():
                     targets.append(t)
         if not targets:
             return SinkReply(True, "Nothing is running.")
         for t in targets:
-            if t.status == "queued":
+            if t.status in ("queued", "held"):
                 self.store.update_task(t.id, status="stopped", error="stopped before it started")
             else:
                 await self.executor.cancel(t.id)
@@ -355,7 +373,9 @@ class Daemon:
 
     async def _schedule_loop(self) -> None:
         while True:
-            await self._kick.wait()
+            # Wake at least every 15 s so held tasks start when their hold time passes.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._kick.wait(), timeout=15)
             self._kick.clear()
             try:
                 self._dispatch()
@@ -363,6 +383,8 @@ class Daemon:
                 log.exception("scheduler error")
 
     def _dispatch(self) -> None:
+        for tid in self.store.release_held():
+            self.store.audit("task_released", {}, task_id=tid)
         limit = self.cfg.limits.max_parallel_projects
         for t in self.store.tasks(("queued",), limit=500):
             if len(self._running) >= limit:
@@ -394,6 +416,14 @@ class Daemon:
             if t.resume and not session:
                 report.notes.append("No earlier session for this project, so this started fresh.")
             start_from = session.get("branch") if session else None
+            if t.attempts:
+                # A held task coming back: continue its own session and branch.
+                report.notes.append(
+                    "This task waited for Claude's usage limit to reset "
+                    f"(attempt {t.attempts + 1})."
+                )
+                if t.session_id:
+                    session = {"session_id": t.session_id, "branch": t.branch}
 
             try:
                 tb = await asyncio.to_thread(gitops.prepare, pdir, t.id, t.tier, start_from)
@@ -448,10 +478,24 @@ class Daemon:
                 elif ev.kind == "tool":
                     self.store.audit("tool_call", {"tool": ev.data.get("name")}, task_id=t.id)
 
-            result: ExecResult = await self.executor.run(req, on_event)
+            limited_until = self._claude_limited_until
+            if limited_until > time.time():
+                # Claude is known to be at its limit: don't spend an attempt finding out again.
+                result: ExecResult = ExecResult(
+                    ok=False, limit_reset_at=limited_until, executor=self.executor.name
+                )
+            else:
+                result = await self.executor.run(req, on_event)
+                if result.session_id:
+                    self.store.update_task(t.id, session_id=result.session_id)
+            if result.limit_reset_at and not result.ok and not result.stopped:
+                self._claude_limited_until = max(self._claude_limited_until, result.limit_reset_at)
+                fallback = await self._fallback_after_limit(t, project, req, tb, report, on_event)
+                if fallback is None:
+                    self._hold(t, report, result.limit_reset_at)
+                    return
+                result = fallback
             self._apply_result(report, result)
-            if result.session_id:
-                self.store.update_task(t.id, session_id=result.session_id)
         except asyncio.CancelledError:
             report.status = "stopped"
             report.summary = report.summary or "Stopped on request."
@@ -461,6 +505,61 @@ class Daemon:
             report.errors.append(f"internal error: {e}")
         finally:
             await self._finish(t, report, tb)
+
+    # ------------------------------------------------------------------ usage limits
+
+    async def _fallback_after_limit(
+        self,
+        t: TaskRow,
+        project: ProjectConfig,
+        req: ExecRequest,
+        tb: gitops.TaskBranch,
+        report: TaskReport,
+        on_event: OnEvent,
+    ) -> ExecResult | None:
+        """Run on a fallback model if this task may, else return None (the task is held).
+
+        Read tier: allowed when ``fallback.read_tier``. Work tier: only for projects with
+        ``fallback_work: true``, on a ``fallback/task-<id>`` branch. Approve-tier actions
+        never run on a fallback model (approvals are off there, so they are denied).
+        """
+        models = self.cfg.fallback.models
+        if not models:
+            return None
+        if t.tier == "read":
+            if not self.cfg.fallback.read_tier:
+                return None
+        elif not (project.fallback_work and tb.branch):
+            return None
+        else:
+            new = f"fallback/task-{t.id}"
+            await asyncio.to_thread(gitops.git, tb.project_dir, "branch", "-m", tb.branch, new)
+            tb.branch = new
+            report.branch = new
+            self.store.update_task(t.id, branch=new)
+            req.branch = new
+        ex = self._fallback_factory(models[0])
+        report.fallback_model = f"{models[0].name} ({models[0].model})"
+        report.notes.append(
+            "Claude's usage limit was reached, so a fallback model "
+            f"({report.fallback_model}) did this instead. It is less capable than Claude, "
+            "cannot search the web, and could not ask you for approvals."
+        )
+        self.store.audit("fallback_used", {"model": models[0].name}, task_id=t.id)
+        req.resume_session_id = None
+        return await ex.run(req, on_event)
+
+    def _hold(self, t: TaskRow, report: TaskReport, reset_at: float) -> None:
+        hold_until = reset_at + 60
+        report.status = "held"
+        report.held_until = hold_until
+        when = time.strftime("%H:%M", time.localtime(hold_until))
+        report.summary = (
+            f"This task needs Claude, and Claude's usage limit is reached. "
+            f"I'll run it automatically at {when}."
+        )
+        self.store.update_task(t.id, hold_until=hold_until, attempts=t.attempts + 1)
+        self.store.audit("task_held", {"until": hold_until}, task_id=t.id)
 
     def _apply_result(self, report: TaskReport, result: ExecResult) -> None:
         report.executor = result.executor

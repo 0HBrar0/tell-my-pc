@@ -121,6 +121,84 @@
       "title": "ExecutorConfig",
       "type": "object"
     },
+    "FallbackConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "description": "Tried in order when Claude is at its usage limit.",
+          "items": {
+            "$ref": "#/$defs/FallbackModelConfig"
+          },
+          "title": "Models",
+          "type": "array"
+        },
+        "read_tier": {
+          "default": true,
+          "description": "Run Read-tier tasks on a fallback model instead of waiting.",
+          "title": "Read Tier",
+          "type": "boolean"
+        }
+      },
+      "title": "FallbackConfig",
+      "type": "object"
+    },
+    "FallbackModelConfig": {
+      "additionalProperties": false,
+      "description": "An OpenAI-compatible chat endpoint (OpenAI, Ollama, LM Studio, vLLM, ...).",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Secret"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "base_url": {
+          "description": "e.g. http://127.0.0.1:11434/v1 for Ollama.",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "max_file_chars": {
+          "default": 20000,
+          "maximum": 500000,
+          "minimum": 1000,
+          "title": "Max File Chars",
+          "type": "integer"
+        },
+        "max_steps": {
+          "default": 12,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Steps",
+          "type": "integer"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "timeout_s": {
+          "default": 600,
+          "minimum": 10,
+          "title": "Timeout S",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "base_url",
+        "model"
+      ],
+      "title": "FallbackModelConfig",
+      "type": "object"
+    },
     "LimitsConfig": {
       "additionalProperties": false,
       "properties": {
@@ -298,6 +376,12 @@
           "title": "Default Tier",
           "type": "string"
         },
+        "fallback_work": {
+          "default": false,
+          "description": "Let Work-tier tasks in this project run on a fallback model when Claude is at its usage limit. They run on a fallback/task-<id> branch.",
+          "title": "Fallback Work",
+          "type": "boolean"
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -421,6 +505,9 @@
     },
     "executor": {
       "$ref": "#/$defs/ExecutorConfig"
+    },
+    "fallback": {
+      "$ref": "#/$defs/FallbackConfig"
     },
     "inbox": {
       "anyOf": [
