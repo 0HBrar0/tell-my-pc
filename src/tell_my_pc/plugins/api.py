@@ -1,8 +1,8 @@
 """Versioned plugin interfaces.
 
 Every plugin declares the ``PLUGIN_API_VERSION`` it was written against. The daemon refuses
-plugins whose major version differs from its own. Until 1.0, minor bumps may break things;
-they are listed in the changelog.
+plugins whose major version differs from its own. Since 1.0 the API is stable: minor bumps
+only add things, and breaking changes wait for 2.0.
 
 The four plugin kinds:
 
@@ -18,7 +18,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-PLUGIN_API_VERSION = "0.2"
+PLUGIN_API_VERSION = "1.0"
+# 1.0: stable. No breaking changes until 2.0; 0.x plugins must bump api_version to "1.0".
 # 0.2: TaskSink gained answer_approval() and lock().
 
 Tier = Literal["read", "work", "approve"]

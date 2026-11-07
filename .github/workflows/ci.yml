@@ -40,3 +40,12 @@ jobs:
         run: |
           uv run --with ./examples/plugins/file-notifier tell-my-pc plugins | tee plugins.txt
           grep -E "notifier +file +tell-my-pc-file-notifier" plugins.txt
+      - name: Wheel builds and installs as a tool
+        shell: bash
+        run: |
+          uv build
+          uv tool install dist/tell_my_pc-*.whl
+          tell-my-pc --version | tee version.txt
+          grep -F "$(uv run python -c 'import tell_my_pc; print(tell_my_pc.__version__)')" version.txt
+          tell-my-pc plugins
+          tell-my-pc paths

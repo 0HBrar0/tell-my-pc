@@ -21,7 +21,7 @@ from typing import Any, ClassVar
 
 
 class FileNotifier:
-    api_version: ClassVar[str] = "0.2"
+    api_version: ClassVar[str] = "1.0"
     name: ClassVar[str] = "file"
 
     def __init__(self, path: Path) -> None:

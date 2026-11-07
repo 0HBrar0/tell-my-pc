@@ -32,7 +32,7 @@ from typing import ClassVar
 
 
 class MyNotifier:
-    api_version: ClassVar[str] = "0.2"  # the plugin API you wrote against
+    api_version: ClassVar[str] = "1.0"  # the plugin API you wrote against
     name: ClassVar[str] = "mine"
 
     async def send(self, note) -> None:  # note: tell_my_pc.plugins.api.Notification
@@ -91,5 +91,7 @@ whenever a non-built-in executor is configured.
 
 ## Plugin API changelog
 
+- **1.0**: stable; same interfaces as 0.2. From here on, minor versions only add things and
+  breaking changes wait for 2.0. Plugins written for 0.2 only need `api_version = "1.0"`.
 - **0.2**: `TaskSink` gained `answer_approval()` and `lock()`.
 - **0.1**: first version.
