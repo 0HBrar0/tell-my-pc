@@ -40,6 +40,18 @@ def test_files_changed_come_from_git_including_model_commits(repo: Path) -> None
     assert {c.path for c in changes} == {"a.txt", "b.txt"}
 
 
+def test_build_junk_not_swept_into_commit(repo: Path) -> None:
+    tb = G.prepare(str(repo), "tj", "work")
+    (repo / "__pycache__").mkdir()
+    (repo / "__pycache__" / "x.cpython-312.pyc").write_bytes(b"\0")
+    (repo / ".pytest_cache").mkdir()
+    (repo / ".pytest_cache" / "README.md").write_text("cache")
+    (repo / "real.py").write_text("x = 1\n")
+    changes, problems = G.finalize(tb, "t")
+    assert problems == []
+    assert [c.path for c in changes] == ["real.py"]
+
+
 def test_empty_branch_deleted(repo: Path) -> None:
     tb = G.prepare(str(repo), "t3", "read")
     changes, _ = G.finalize(tb, "nothing")

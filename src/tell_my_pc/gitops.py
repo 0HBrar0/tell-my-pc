@@ -15,6 +15,26 @@ BOT_NAME = "tell-my-pc"
 BOT_EMAIL = "tell-my-pc@localhost"
 
 
+# Build and cache output that running tests or builds leaves behind. The daemon never sweeps
+# these into its leftover commit, even in repos without a .gitignore. (A task may still commit
+# them deliberately with `git add`; then they show up in files_changed, because that is true.)
+JUNK_EXCLUDES: tuple[str, ...] = tuple(
+    f":(exclude,glob){p}"
+    for p in (
+        "**/__pycache__/**",
+        "**/*.pyc",
+        "**/.pytest_cache/**",
+        "**/.ruff_cache/**",
+        "**/.mypy_cache/**",
+        "**/node_modules/**",
+        "**/.DS_Store",
+        "**/Thumbs.db",
+        "**/.coverage",
+        "**/htmlcov/**",
+    )
+)
+
+
 class GitError(Exception):
     pass
 
@@ -163,7 +183,7 @@ def finalize(tb: TaskBranch, message: str) -> tuple[list[FileChange], list[str]]
         return changed, problems
 
     try:
-        git(cwd, "add", "-A")
+        git(cwd, "add", "-A", "--", ".", *JUNK_EXCLUDES)
         keep_out = sorted(tb.start_untracked & _staged(cwd))
         for chunk in _chunks(keep_out, 100):
             git(cwd, "reset", "-q", "--", *chunk)
