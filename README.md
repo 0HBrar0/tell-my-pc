@@ -39,6 +39,13 @@ uv run tell-my-pc serve
 
 Then follow [docs/setup](docs/setup/) for the iPhone Shortcut, Tailscale and ntfy.
 
+## More
+
+- [Threat model](docs/threat-model.md): what is protected, and the known limits
+- [Writing a plugin](docs/writing-a-plugin.md): notifiers, transports, executors
+- [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) ·
+  [Design decisions](docs/decisions/)
+
 ## Licence
 
 MIT

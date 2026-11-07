@@ -82,15 +82,21 @@ Phase 2 · Control — done (2026-11-07). Approvals go through the shared SQLite
 capability links (ADR 0004); timeout = deny; lock/unlock, audit, autostart CLI. Verified once
 against real `claude` (hook held a Bash call, ran it after Approve).
 
-Phase 3 · Plugin API and contributor kit — next (issues #19–#23):
-1. Entry-point plugin discovery (`tell_my_pc.plugins` group per kind), `api_compatible` check
-   at load, config `type:` picks a plugin by name. Plugin API is 0.2 (see `plugins/api.py`).
-2. ntfy-inbox transport: subscribe to an authenticated topic; the config check must refuse
-   public/unauthenticated inbox topics. Needs the same timestamp/nonce rules as HTTP.
-3. CONTRIBUTING.md, SECURITY.md, docs/threat-model.md, issue/PR templates,
-   docs/writing-a-plugin.md.
-4. Done when an out-of-tree sample notifier plugin (e.g. `examples/plugins/file-notifier`)
-   works with zero core changes, proven by a test that installs it.
+Phase 3 · Plugin API and contributor kit — done (2026-11-07). Entry-point registry
+(`plugins/registry.py`), `also_notify` fan-out, `tell-my-pc plugins`, sample plugin in
+`examples/plugins/file-notifier` (CI installs it with `uv run --with`), ntfy inbox transport
+(refuses open topics at start-up), CONTRIBUTING, SECURITY, `docs/threat-model.md`,
+`docs/writing-a-plugin.md`, issue/PR templates. Plugin API 0.2.
+
+Phase 4 · Files — next (issues #24–#27):
+1. A small local MCP server exposing `deliver_file(path)` to Claude, passed with
+   `--mcp-config` (keep `--strict-mcp-config`), limited to allowlisted roots (new
+   `delivery.roots` config); the policy hook must allow `mcp__tell_my_pc__deliver_file` and
+   still apply Never rules to the path.
+2. HMAC-signed expiring links (`/files/<id>?exp=&sig=`) served by the Tailscale transport;
+   key lives in the data dir, never in config.
+3. ntfy attachments for small files (PUT with `Filename` header), links for big ones.
+4. Done when "send me the latest screenshot" yields a working link that expires (test it).
 
 Waiting on the user: Tailscale login on this PC and the phone, an ntfy account + token, and
 building the iOS Shortcut (docs/setup).
