@@ -103,7 +103,7 @@ Phase 5 · Fallback — next (issues #28–#31):
    both are labelled in the report.
 
 Running install on the maintainer PC: `bash /e/void/.tools/update-tell-my-pc.sh` reinstalls
-from `main` and restarts the logon task. Real config: `E:oid\.tell-my-pc\config`.
+from `main` and restarts the logon task. Real config: `E:\void\.tell-my-pc\config`.
 
 Waiting on the user: Tailscale login on this PC and the phone, an ntfy account + token, and
 building the iOS Shortcut (docs/setup).
