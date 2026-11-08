@@ -78,6 +78,33 @@ def test_autostart_script(tmp_path: Path) -> None:
     assert "Get-ScheduledTask" in autostart_script("status")
 
 
+def test_serve_waits_for_tailscale(
+    cfg_dict: dict, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """At logon or after sleep Tailscale may have no address yet: wait, don't exit."""
+    from tell_my_pc import config as config_mod
+    from tell_my_pc.cli import wait_for_bind
+    from tell_my_pc.config import Config, ConfigError
+
+    cfg = Config.model_validate({**cfg_dict, "server": {**cfg_dict["server"], "bind": "tailscale"}})
+    answers = iter([None, None, None, "100.64.1.2"])
+    monkeypatch.setattr(config_mod, "tailscale_ip", lambda: next(answers))
+    slept: list[float] = []
+    with caplog.at_level("WARNING"):
+        assert wait_for_bind(cfg, sleep=slept.append, poll_s=5, log_every_s=10) == "100.64.1.2"
+    assert slept == [5, 5, 5]
+    assert sum("Waiting for it" in r.message for r in caplog.records) == 2  # at 0 s and 10 s
+
+    monkeypatch.setattr(config_mod, "tailscale_ip", lambda: None)
+    with pytest.raises(ConfigError):
+        wait_for_bind(cfg, wait=False, sleep=slept.append)
+    bad = Config.model_validate(
+        {**cfg_dict, "server": {**cfg_dict["server"], "bind": "0.0.0." + "0"}}
+    )
+    with pytest.raises(ConfigError):  # unsafe binds never wait
+        wait_for_bind(bad, sleep=lambda s: pytest.fail("waited"))
+
+
 def test_serve_survives_pythonw_without_console(repo: Path, tmp_path: Path) -> None:
     """Autostart runs under pythonw, where sys.stdout/stderr are None."""
     import socket

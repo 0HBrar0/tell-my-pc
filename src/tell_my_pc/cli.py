@@ -9,9 +9,9 @@ import json
 import logging
 import os
 import secrets
-import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -144,13 +144,42 @@ def cmd_serve(args: argparse.Namespace) -> int:
     )
     try:
         cfg = _load_checked(args.config)
-        host = resolve_bind(cfg)
+        with contextlib.suppress(KeyboardInterrupt):
+            host = wait_for_bind(cfg, wait=not args.no_wait)
+            asyncio.run(_serve(cfg, host))
     except ConfigError as e:
         print(e, file=sys.stderr)
         return 2
-    with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_serve(cfg, host))
     return 0
+
+
+def wait_for_bind(
+    cfg: Config,
+    *,
+    wait: bool = True,
+    sleep: Callable[[float], None] = time.sleep,
+    poll_s: float = 5.0,
+    log_every_s: float = 60.0,
+) -> str:
+    """The address to listen on. With ``bind: tailscale``, wait for Tailscale to come up.
+
+    At logon, or after sleep, the daemon can start before Tailscale has its address; exiting
+    then would leave it dead until the next logon.
+    """
+    log = logging.getLogger("tell_my_pc")
+    waited = 0.0
+    next_log = 0.0
+    while True:
+        try:
+            return resolve_bind(cfg)
+        except ConfigError as e:
+            if not wait or cfg.server.bind.strip() != "tailscale":
+                raise
+            if waited >= next_log:
+                log.warning("%s Waiting for it (%.0f s so far)...", e, waited)
+                next_log = waited + log_every_s
+            sleep(poll_s)
+            waited += poll_s
 
 
 async def _serve(cfg: Config, host: str) -> None:
@@ -336,76 +365,23 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
-TASK_NAME = "tell-my-pc"
-
-
-def _ps_quote(s: str) -> str:
-    return "'" + s.replace("'", "''") + "'"
-
-
 def autostart_script(action: str, config: Path | None = None) -> str:
-    """PowerShell for Windows autostart at user logon (Task Scheduler, not a Windows Service).
+    """The Windows PowerShell (kept for callers of the 1.0 API; see :mod:`.autostart`)."""
+    from .autostart import windows_script
 
-    ``schtasks /SC ONLOGON`` needs admin rights; Register-ScheduledTask with a logon trigger
-    for the current user does not. The task gets explicit --config and --data-dir, so it does
-    not depend on environment variables the Task Scheduler may not have picked up yet.
-    """
-    name = _ps_quote(TASK_NAME)
-    if action == "remove":
-        return f"Unregister-ScheduledTask -TaskName {name} -Confirm:$false; 'removed'"
-    if action == "status":
-        return (
-            f"$t = Get-ScheduledTask -TaskName {name} -ErrorAction SilentlyContinue; "
-            "if ($t) { $i = $t | Get-ScheduledTaskInfo; "
-            '"state: $($t.State)  last run: $($i.LastRunTime)  result: $($i.LastTaskResult)" }'
-            " else { 'not installed' }"
-        )
-    exe = Path(sys.executable)
-    pyw = exe.with_name("pythonw.exe")
-    runner = pyw if pyw.exists() else exe
-    cfg = (config or paths.config_file()).resolve()
-    data = paths.data_dir().resolve()
-    argline = (
-        f'-m tell_my_pc.cli --config "{cfg}" --data-dir "{data}" '
-        f'serve --log-file "{data / "daemon.log"}"'
-    )
-    return "\n".join(
-        [
-            "$ErrorActionPreference = 'Stop'",
-            '$user = "$env:USERDOMAIN\\$env:USERNAME"',
-            f"$a = New-ScheduledTaskAction -Execute {_ps_quote(str(runner))} "
-            f"-Argument {_ps_quote(argline)} -WorkingDirectory {_ps_quote(str(data))}",
-            "$t = New-ScheduledTaskTrigger -AtLogOn -User $user",
-            "$p = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive "
-            "-RunLevel Limited",
-            "$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries "
-            "-DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) "
-            "-RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)",
-            f"Register-ScheduledTask -TaskName {name} -Action $a -Trigger $t -Principal $p "
-            "-Settings $s -Force | Out-Null",
-            f"Start-ScheduledTask -TaskName {name}",
-            "'installed and started'",
-        ]
-    )
+    return windows_script(action, config)
 
 
 def cmd_autostart(args: argparse.Namespace) -> int:
-    if sys.platform != "win32" and not args.dry_run:
-        print("Autostart is built in for Windows. On macOS/Linux use launchd or systemd --user;"
-              " see docs/setup/autostart.md.", file=sys.stderr)  # fmt: skip
-        return 1
-    script = autostart_script(args.action, args.config)
+    from . import autostart
+
+    p = autostart.plan(args.action, args.config)
     if args.dry_run:
-        print(script)
-        return 0
-    r = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    print((r.stdout or r.stderr).strip())
-    return r.returncode
+        print(p.describe())
+        return 0 if not p.problem else 1
+    rc, msg = autostart.execute(p)
+    print(msg, file=sys.stderr if rc else sys.stdout)
+    return rc
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -443,6 +419,9 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("serve", help="run the daemon")
     p.add_argument("-v", "--verbose", action="store_true")
     p.add_argument("--log-file", type=Path, help="log here instead of the console")
+    p.add_argument(
+        "--no-wait", action="store_true", help="exit instead of waiting for Tailscale to come up"
+    )
     p.set_defaults(func=cmd_serve)
 
     sub.add_parser("check", help="validate config and safety rules").set_defaults(func=cmd_check)
@@ -458,7 +437,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_audit)
 
-    p = sub.add_parser("autostart", help="start the daemon at logon (Windows Task Scheduler)")
+    p = sub.add_parser(
+        "autostart", help="start the daemon at logon (Task Scheduler, systemd --user, launchd)"
+    )
     p.add_argument("action", choices=["install", "remove", "status"])
     p.add_argument("--dry-run", action="store_true", help="print the command only")
     p.set_defaults(func=cmd_autostart)

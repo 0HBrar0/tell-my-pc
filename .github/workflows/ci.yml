@@ -40,6 +40,17 @@ jobs:
         run: |
           uv run --with ./examples/plugins/file-notifier tell-my-pc plugins | tee plugins.txt
           grep -E "notifier +file +tell-my-pc-file-notifier" plugins.txt
+      - name: Autostart unit passes systemd-analyze (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          unit=$(uv run python scripts/ci_autostart_files.py "$RUNNER_TEMP/autostart")
+          cat "$unit"
+          systemd-analyze --user verify "$unit"
+      - name: Autostart LaunchAgent passes plutil (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          plist=$(uv run python scripts/ci_autostart_files.py "$RUNNER_TEMP/autostart")
+          plutil -lint "$plist"
       - name: Wheel builds and installs as a tool
         shell: bash
         run: |

@@ -40,67 +40,47 @@ New-NetFirewallRule -DisplayName "tell-my-pc (Tailscale only)" -Direction Inboun
 If Windows shows a firewall prompt for `pythonw.exe` instead, you can cancel it; the rule above
 is narrower than what the prompt would create.
 
-## macOS / Linux
+### If the phone can't reach it after a restart or sleep
 
-`tell-my-pc autostart` is Windows-only so far, but a per-user service does the same job. Find
-the full path first with `command -v tell-my-pc` (often `~/.local/bin/tell-my-pc`) and use it
-below.
+The daemon waits for Tailscale: until the computer has its Tailscale address, `daemon.log`
+shows "no Tailscale IP was found ... Waiting for it" once a minute. If that keeps going, open
+the Tailscale app on the computer and make sure it says **Connected**; `tailscale status`
+should list your devices. The daemon starts listening by itself as soon as Tailscale is up.
 
-### Linux (systemd user unit)
+## macOS and Linux
 
-Save as `~/.config/systemd/user/tell-my-pc.service`:
-
-```ini
-[Unit]
-Description=tell-my-pc daemon
-After=network-online.target
-
-[Service]
-ExecStart=%h/.local/bin/tell-my-pc serve
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-```
+The same command works. It installs a per-user service that runs as you, only while you are
+logged in:
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable --now tell-my-pc
-journalctl --user -u tell-my-pc -f      # logs
+tell-my-pc autostart install --dry-run   # shows the exact file and commands first
+tell-my-pc autostart install
+tell-my-pc autostart status
+tell-my-pc autostart remove
 ```
 
-Secrets given as env vars go in an `Environment=NTFY_TOKEN=...` line or an
-`EnvironmentFile=` (mode 600). The unit runs only while you are logged in, which is what you
-want: it uses your own Claude login.
+| | Linux | macOS |
+|---|---|---|
+| File | `~/.config/systemd/user/tell-my-pc.service` | `~/Library/LaunchAgents/dev.tell-my-pc.plist` |
+| Started with | `systemctl --user enable --now` | `launchctl bootstrap gui/<uid>` |
+| Restarts | on failure, after 10 s | when it exits with an error |
+| Logs | `daemon.log` in the data folder; start-up errors in `journalctl --user -u tell-my-pc` | `daemon.log`; start-up errors in `launchd.err.log`, both in the data folder |
 
-### macOS (launchd LaunchAgent)
+The service gets explicit `--config` and `--data-dir` paths, and the `PATH` you had when you
+installed it, so it finds `claude` even though service managers don't read your shell profile.
+If you later install `claude` somewhere else, run `tell-my-pc autostart install` again.
 
-Save as `~/Library/LaunchAgents/dev.tell-my-pc.plist`, with your user name in the paths:
+**Secrets given as env vars** (for example `NTFY_TOKEN`) are never written into these files.
+Make them visible to services:
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>dev.tell-my-pc</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Users/YOU/.local/bin/tell-my-pc</string>
-    <string>serve</string>
-    <string>--log-file</string>
-    <string>/Users/YOU/Library/Logs/tell-my-pc.log</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-</dict>
-</plist>
-```
+- Linux: put `NTFY_TOKEN=tk_...` in `~/.config/environment.d/tell-my-pc.conf` (`chmod 600`),
+  then log out and back in.
+- macOS: `launchctl setenv NTFY_TOKEN tk_...` (lasts until reboot), or keep the token in the
+  config file's `value:` instead, since that file is private to you.
 
-```bash
-launchctl load ~/Library/LaunchAgents/dev.tell-my-pc.plist
-launchctl list | grep tell-my-pc
-```
+**Linux without systemd** (some containers and WSL setups): `tell-my-pc autostart` says so.
+Add `tell-my-pc serve` to your desktop's "Startup Applications" instead.
 
-launchd does not read your shell profile, so `claude` must be findable: if `tell-my-pc check`
-works in Terminal but the agent can't find `claude`, set `executor.claude_path` in the config.
+**Lingering:** a systemd user service stops when you log out. That's intended, because tasks
+use your own Claude login. `loginctl enable-linger` would keep it running, but think about
+whether you want that.
