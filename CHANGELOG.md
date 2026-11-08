@@ -3,6 +3,31 @@
 All notable changes. The package follows [Semantic Versioning](https://semver.org); the plugin
 API has its own version (see [ADR 0007](docs/decisions/0007-plugin-api-1-0-stability.md)).
 
+## 1.1.0 · 2026-11-07
+
+### Added
+
+- `tell-my-pc autostart install|status|remove` on **macOS** (a launchd LaunchAgent) and
+  **Linux** (a `systemd --user` unit), like the Windows Task Scheduler task. `--dry-run` shows
+  the exact file and commands. The service gets explicit config/data paths and your `PATH`,
+  never secrets.
+- `tell-my-pc setup` offers autostart on every OS.
+- CI lints the generated unit with `systemd-analyze verify` and the plist with `plutil -lint`.
+
+### Fixed
+
+- `serve` no longer exits when Tailscale has no address yet (at logon, after sleep, while
+  Tailscale reconnects). It waits and logs once a minute; `--no-wait` keeps the old behaviour.
+  Before, the Windows task could use up its 3 restarts and stay down until the next logon.
+- The Windows task now restarts up to 999 times instead of 3. Run
+  `tell-my-pc autostart install` once to update an existing task.
+
+### Install
+
+```bash
+uv tool install --force git+https://github.com/0HBrar0/tell-my-pc@v1.1.0
+```
+
 ## 1.0.0 · 2026-11-07
 
 First stable release. Plugin API 1.0.
@@ -51,7 +76,7 @@ attached to the GitHub release.
 ### Known limits
 
 - The fallback executor has been tested against a mock OpenAI-compatible server only.
-- macOS and Linux pass the full test suite in CI, but `tell-my-pc autostart` is Windows-only;
-  [docs/setup/autostart.md](docs/setup/autostart.md) has a systemd unit and a LaunchAgent.
+- macOS and Linux pass the full test suite in CI, but `tell-my-pc autostart` is Windows-only
+  (added for macOS and Linux in 1.1.0).
 - Day-to-day use so far is on Windows 11 with an iPhone.
 - The Windows firewall rule needs an administrator PowerShell; `setup` prints the command.

@@ -2,7 +2,7 @@
 
 It finds what it can (Tailscale IP, git projects, the screenshots folder, the claude CLI),
 generates the secrets, refuses unsafe configs, writes the private phone-setup page with QR
-codes, and on Windows installs autostart. It only asks about what it can't decide.
+codes, and installs autostart. It only asks about what it can't decide.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import secrets
 import shutil
-import subprocess
 import sys
 import webbrowser
 from collections.abc import Callable
@@ -19,7 +18,7 @@ from typing import Any
 
 import yaml
 
-from . import gitops, paths, phone_page
+from . import autostart, gitops, paths, phone_page
 from .config import Config, safety_problems, safety_warnings, tailscale_ip
 
 FIREWALL_CMD = (
@@ -219,17 +218,11 @@ def run(args: argparse.Namespace, read: Callable[[str], str] = input) -> int:
     if sys.platform == "win32":
         say("\nWindows firewall: run this once in an administrator PowerShell:")
         say("  " + FIREWALL_CMD.format(port=port))
-        if not args.no_autostart and ask.yes("Start tell-my-pc automatically when you log in?"):
-            from .cli import autostart_script
-
-            r = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                 autostart_script("install", target)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )  # fmt: skip
-            say(("✓ " if r.returncode == 0 else "✗ ") + (r.stdout or r.stderr).strip())
+    if not args.no_autostart and ask.yes("Start tell-my-pc automatically when you log in?"):
+        rc, msg = autostart.execute(autostart.plan("install", target))
+        say(("✓ " if rc == 0 else "✗ ") + msg)
+        if rc != 0:
+            say("  Start it by hand with `tell-my-pc serve` (docs/setup/autostart.md).")
     else:
         say("\nStart the daemon with `tell-my-pc serve` (see docs/setup/autostart.md).")
 

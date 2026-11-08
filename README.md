@@ -13,7 +13,7 @@ headless mode, on its own git branch, and pushes a short report back to your pho
   on a throwaway `tmp/task-<id>` branch. It never uses `--dangerously-skip-permissions`.
 - **Honest reports.** The list of changed files comes from `git diff`, not from the model.
 
-Status: **1.0.0**, stable plugin API 1.0. Docs: <https://0hbrar0.github.io/tell-my-pc/> ·
+Status: **1.1.0**, stable plugin API 1.0. Docs: <https://0hbrar0.github.io/tell-my-pc/> ·
 [Changelog](CHANGELOG.md)
 
 ## How it is contained
@@ -33,12 +33,12 @@ You need [Claude Code](https://docs.claude.com/en/docs/claude-code) (logged in) 
 [Tailscale](https://tailscale.com/download) on your computer and iPhone.
 
 ```bash
-uv tool install git+https://github.com/0HBrar0/tell-my-pc@v1.0.0   # or: pipx install git+...
+uv tool install git+https://github.com/0HBrar0/tell-my-pc@v1.1.0   # or: pipx install git+...
 tell-my-pc setup
 ```
 
 `setup` finds your Tailscale address and git projects, generates the secrets, refuses unsafe
-configs, starts the daemon at logon (Windows), and opens a private page with QR codes for the
+configs, starts the daemon at logon (Windows, macOS, Linux), and opens a private page with QR codes for the
 iPhone part: the ntfy app and the "Tell Claude" Shortcut. Details: [docs/setup](docs/setup/).
 
 Development: `uv sync`, then `uv run pytest -q` (see [CONTRIBUTING.md](CONTRIBUTING.md)).

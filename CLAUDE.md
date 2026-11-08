@@ -111,8 +111,12 @@ merge, then `git tag -a vX.Y.Z` on main, push the tag, `uv build` and
 `gh release create vX.Y.Z dist/*` with the CHANGELOG section as notes. Plugin API changes
 follow ADR 0007 (additive in 1.x).
 
-Next ideas (no milestone yet): real local-model run of the fallback executor, autostart for
-macOS/Linux in the CLI, PyPI publishing.
+1.1.0: `autostart.py` plans and runs autostart for Windows (Task Scheduler), Linux
+(`systemd --user`) and macOS (launchd); plans are pure data so tests cover every OS, and CI
+lints the real files (`scripts/ci_autostart_files.py`).
+
+Next ideas (no milestone yet): real local-model run of the fallback executor, PyPI publishing
+(needs a PyPI account and a trusted publisher set up by the user).
 
 Running install on the maintainer PC: `bash /e/void/.tools/update-tell-my-pc.sh` reinstalls
 from `main` and restarts the logon task. Real config: `E:/void/.tell-my-pc/config`.
