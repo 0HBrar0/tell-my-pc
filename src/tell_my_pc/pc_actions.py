@@ -121,7 +121,8 @@ def system_info() -> str:
     ]
     if IS_WINDOWS:
         lines += _windows_power_memory_uptime()
-    drives = os.listdrives() if IS_WINDOWS and hasattr(os, "listdrives") else ["/"]
+    listdrives = getattr(os, "listdrives", None)  # Windows, Python 3.12+
+    drives: list[str] = listdrives() if IS_WINDOWS and listdrives else ["/"]
     for d in drives:
         try:
             u = shutil.disk_usage(d)
