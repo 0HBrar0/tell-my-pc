@@ -78,6 +78,13 @@ class FallbackConfig(_Model):
     )
 
 
+class DashboardConfig(_Model):
+    """The local dashboard: only on 127.0.0.1, opened with `tell-my-pc dashboard`."""
+
+    enabled: bool = True
+    port: int = Field(default=8790, ge=1024, le=65535)
+
+
 class DeliveryConfig(_Model):
     """Files a task may send to the phone (Phase 4)."""
 
@@ -269,6 +276,7 @@ class ComputerConfig(_Model):
 class Config(_Model):
     version: Literal[1] = 1
     computer: ComputerConfig = Field(default_factory=lambda: ComputerConfig.model_validate({}))
+    dashboard: DashboardConfig = Field(default_factory=lambda: DashboardConfig.model_validate({}))
     server: ServerConfig = Field(default_factory=lambda: ServerConfig.model_validate({}))
     limits: LimitsConfig = Field(default_factory=lambda: LimitsConfig.model_validate({}))
     projects: list[ProjectConfig]

@@ -68,6 +68,26 @@
       "title": "ComputerConfig",
       "type": "object"
     },
+    "DashboardConfig": {
+      "additionalProperties": false,
+      "description": "The local dashboard: only on 127.0.0.1, opened with `tell-my-pc dashboard`.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "port": {
+          "default": 8790,
+          "maximum": 65535,
+          "minimum": 1024,
+          "title": "Port",
+          "type": "integer"
+        }
+      },
+      "title": "DashboardConfig",
+      "type": "object"
+    },
     "DeliveryConfig": {
       "additionalProperties": false,
       "description": "Files a task may send to the phone (Phase 4).",
@@ -570,6 +590,9 @@
     },
     "computer": {
       "$ref": "#/$defs/ComputerConfig"
+    },
+    "dashboard": {
+      "$ref": "#/$defs/DashboardConfig"
     },
     "delivery": {
       "$ref": "#/$defs/DeliveryConfig"

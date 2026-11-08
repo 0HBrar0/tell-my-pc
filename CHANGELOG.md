@@ -3,6 +3,26 @@
 All notable changes. The package follows [Semantic Versioning](https://semver.org); the plugin
 API has its own version (see [ADR 0007](docs/decisions/0007-plugin-api-1-0-stability.md)).
 
+## 1.3.0 · 2026-11-08
+
+### Added
+
+- **Dashboard** ([guide](docs/setup/dashboard.md)): `tell-my-pc dashboard` opens a private page
+  served by the daemon on `127.0.0.1:8790`. Overview of the last 24 hours (traffic from and to
+  the phone, tool calls by verdict, the running task live, approvals waiting), the full
+  activity log with filters and search, task reports with every tool call, approvals you can
+  answer from the computer, files sent, the kill switch, and the config with secrets hidden.
+  Dark and light follow the system. Geist fonts are bundled (SIL OFL), so it works offline.
+- The audit log now records what comes in and goes out: each authenticated request with the
+  reply Siri spoke, each notification sent (button labels only, links redacted), and the
+  dictated text of each task.
+
+### Security
+
+- The dashboard needs a local key (sent as a header, passed to the browser in the URL
+  fragment), refuses foreign `Host` headers, accepts only JSON posts, and sends a strict
+  content security policy.
+
 ## 1.2.0 · 2026-11-07
 
 ### Added

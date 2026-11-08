@@ -222,12 +222,28 @@ async def _serve(cfg: Config, host: str) -> None:
     await transport.start(daemon)
     for t in extras:
         await t.start(daemon)
+    dash = None
+    if cfg.dashboard.enabled:
+        from .dashboard import Dashboard
+
+        dash = Dashboard(daemon, store, cfg, data)
+        try:
+            await dash.start()
+        except (OSError, SystemExit) as e:  # port taken: the daemon still runs without it
+            logging.getLogger("tell_my_pc").warning("dashboard did not start: %s", e)
+            dash = None
+        else:
+            logging.getLogger("tell_my_pc").info(
+                "dashboard on http://127.0.0.1:%s (open it with `tell-my-pc dashboard`)", dash.port
+            )
     logging.getLogger("tell_my_pc").info(
         "tell-my-pc %s listening on http://%s:%s", __version__, host, transport.port
     )
     try:
         await asyncio.Event().wait()
     finally:
+        if dash:
+            await dash.close()
         for t in extras:
             await t.close()
         await transport.close()
@@ -401,6 +417,41 @@ def cmd_plugins(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Open the local dashboard (served by the running daemon on 127.0.0.1)."""
+    import urllib.request
+    import webbrowser
+
+    from . import dashboard
+
+    try:
+        cfg = load(args.config)
+    except ConfigError as e:
+        print(e, file=sys.stderr)
+        return 2
+    if not cfg.dashboard.enabled:
+        print("The dashboard is turned off (dashboard.enabled in the config).", file=sys.stderr)
+        return 1
+    link = dashboard.url(cfg, dashboard.load_key(paths.data_dir()))
+    try:
+        with urllib.request.urlopen(
+            f"http://{dashboard.HOST}:{cfg.dashboard.port}/health", timeout=3
+        ) as r:
+            running = b"tell-my-pc-dashboard" in r.read()
+    except OSError:
+        running = False
+    if not running:
+        print("The daemon isn't running, so there is no dashboard to open. Start it with "
+              "`tell-my-pc serve` or `tell-my-pc autostart install`.", file=sys.stderr)  # fmt: skip
+        return 1
+    if args.print_url:
+        print(link)
+    else:
+        webbrowser.open(link)
+        print(f"Opened the dashboard: http://{dashboard.HOST}:{cfg.dashboard.port}/")
+    return 0
+
+
 def cmd_paths(args: argparse.Namespace) -> int:
     print(f"config: {paths.config_file()}")
     print(f"data:   {paths.data_dir()}")
@@ -444,6 +495,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="print the command only")
     p.set_defaults(func=cmd_autostart)
     sub.add_parser("paths", help="print config and data locations").set_defaults(func=cmd_paths)
+    p = sub.add_parser("dashboard", help="open the local dashboard in your browser")
+    p.add_argument(
+        "--print-url", action="store_true", help="print the private link instead of opening it"
+    )
+    p.set_defaults(func=cmd_dashboard)
     sub.add_parser("plugins", help="list installed plugins").set_defaults(func=cmd_plugins)
 
     p = sub.add_parser("setup", help="guided first-time setup (recommended)")
