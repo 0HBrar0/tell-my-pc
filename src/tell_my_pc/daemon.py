@@ -82,6 +82,7 @@ class Daemon:
         )
         self._idle = asyncio.Event()
         self._idle.set()
+        self.started_at = time.time()
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -202,7 +203,7 @@ class Daemon:
         self.store.audit(
             "task_received",
             {"project": project.name, "tier": tier, "resume": resume, "source": task.source,
-             "resolved": res.reason},
+             "resolved": res.reason, "text": text[:500]},
             task_id=row.id,
         )  # fmt: skip
         self._kick.set()
@@ -283,6 +284,35 @@ class Daemon:
         if not ok:
             return SinkReply(False, "That approval expired or was already answered.")
         return SinkReply(True, "Approved." if approve else "Denied.")
+
+    def answer_locally(self, approval_id: str, approve: bool, by: str = "dashboard") -> bool:
+        """Approve or deny from the computer itself (the local dashboard)."""
+        ok = self.store.decide_approval_locally(approval_id, approve)
+        row = self.store.get_approval(approval_id) if ok else None
+        self.store.audit(
+            "approval_answer",
+            {"approval": approval_id, "decision": "approved" if approve else "denied",
+             "accepted": ok, "by": by},
+            task_id=row["task_id"] if row else None,
+        )  # fmt: skip
+        return ok
+
+    def unlock(self, by: str = "dashboard") -> None:
+        """Lift the kill switch. Only reachable on the computer (CLI or local dashboard)."""
+        self.store.set_locked(False)
+        self.store.audit("unlocked", {"by": by})
+
+    def running(self) -> list[dict[str, object]]:
+        out: list[dict[str, object]] = []
+        for tid in list(self._running):
+            t = self.store.get_task(tid)
+            if t:
+                out.append(_task_public(t) | {"updated_at": t.updated_at})
+        return out
+
+    @property
+    def claude_limited_until(self) -> float:
+        return self._claude_limited_until
 
     async def lock(self, reason: str = "") -> SinkReply:
         """Kill switch: refuse new tasks, deny every pending approval and tool call, stop
@@ -374,6 +404,8 @@ class Daemon:
         except Exception as e:
             log.warning("could not send approval %s: %s", aid, e)
             self.store.decide_approval(aid, "denied")  # fail closed
+        else:
+            self._audit_sent(note, task_id=str(row["task_id"]))
         self.store.audit("approval_requested", {"approval": aid, "tool": row["tool"]},
                          task_id=str(row["task_id"]))  # fmt: skip
 
@@ -692,6 +724,26 @@ class Daemon:
         except Exception as e:
             log.warning("notifier failed: %s", e)
             self.store.audit("notify_failed", {"error": str(e), "title": note.title})
+            return
+        self._audit_sent(note)
+
+    def _audit_sent(self, note: Notification, task_id: str | None = None) -> None:
+        """What went to the phone (for the dashboard). Approval links carry one-time tokens,
+        so only button labels are recorded, never URLs."""
+        m = re.search(r"\(([0-9a-f]{8})\)", note.title)
+        self.store.audit(
+            "notification_sent",
+            {
+                "title": note.title[:200],
+                # Links are signed capabilities: keep them out of the log.
+                "message": re.sub(r"https?://\S+", "[link]", note.message)[:600],
+                "kind": note.kind,
+                "priority": note.priority,
+                "buttons": [a.label for a in note.actions],
+                "notifier": getattr(self.notifier, "name", ""),
+            },
+            task_id=task_id or (m.group(1) if m else None),
+        )
 
 
 def _prev_branch(store: Store, project: str) -> str | None:
