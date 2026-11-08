@@ -495,10 +495,12 @@ def _decide_shell(
     if not command.strip():
         return Decision("deny", "empty command")
     # Check path-like words in the raw text too: POSIX parsing would eat Windows backslashes
-    # (C:\x\y -> C:xy) and hide a Never path from the per-argument check below.
+    # (C:\x\y -> C:xy) and hide a Never path from the per-argument check below. The path as
+    # written only: resolving symlinks here would flag the program itself (a venv's python
+    # links into /Library on macOS). Arguments get the resolved check below.
     for word in re.split(r"[\s;&|()<>`'\"=]+", command):
         if word and _looks_like_path(word):
-            hit = checker.never(word)
+            hit = _never_match(checker.forms(word)[0], spec.never_paths, spec.home)
             if hit:
                 return Decision("deny", f"Never rule: {word} matches {hit}")
     parsed = split_shell(command)

@@ -151,6 +151,28 @@ def test_shell_in_computer_tasks(dirs: dict[str, Path], tmp_path: Path) -> None:
     assert decide(spec, "PowerShell", {"command": ps}).verdict == "deny"
 
 
+def test_program_symlinked_into_a_never_folder_still_runs(
+    dirs: dict[str, Path], tmp_path: Path
+) -> None:
+    """macOS CI: a venv's python links into /Library, a Never folder. Running it is fine."""
+    import os
+
+    real = dirs["secret"] / "python3"
+    real.write_text("")
+    link = dirs["workspace"] / ".venv" / "bin" / "python"
+    link.parent.mkdir(parents=True)
+    try:
+        os.symlink(real, link)
+    except OSError:
+        pytest.skip("symlinks not permitted here")
+    spec = make_spec(dirs, tmp_path)
+    prog = str(link).replace("\\", "/")  # as Git Bash writes it
+    spec.work_commands.append([prog, "-m", "pytest"])
+    assert decide(spec, "Bash", {"command": f"{prog} -m pytest -q"}).verdict == "allow"
+    # ...but naming the Never folder itself is still denied.
+    assert decide(spec, "Bash", {"command": f"cat {real}"}).verdict == "deny"
+
+
 # --------------------------------------------------------------------------- config
 
 
