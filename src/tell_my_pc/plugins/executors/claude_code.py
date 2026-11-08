@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from ...config import ExecutorConfig
-from ...policy import DELIVER_TOOL, MCP_SERVER_NAME, RECENT_FILES_TOOL
+from ...policy import DELIVER_TOOL, MCP_SERVER_NAME, PC_TOOLS, RECENT_FILES_TOOL
 from ..api import PLUGIN_API_VERSION, ExecEvent, ExecRequest, ExecResult, OnEvent
 from .base import REPORT_SCHEMA, coerce_report, system_prompt
 
@@ -142,7 +142,9 @@ def build_args(
     ]  # fmt: skip
     if mcp_config_path:
         args += ["--mcp-config", mcp_config_path]
-        args += ["--allowedTools", f"{DELIVER_TOOL},{RECENT_FILES_TOOL}"]
+        # The hook still decides every call; pc_* tools are denied outside computer tasks.
+        allowed = [DELIVER_TOOL, RECENT_FILES_TOOL, *sorted(PC_TOOLS)]
+        args += ["--allowedTools", ",".join(allowed)]
     if req.resume_session_id:
         args += ["--resume", req.resume_session_id]
     if cfg.model:
@@ -221,7 +223,7 @@ class ClaudeCodeExecutor:
             json.dumps(build_settings(req.policy_path, float(spec_timeout))), encoding="utf-8"
         )
         sp_path = state / "system-prompt.md"
-        sp_path.write_text(system_prompt(req.tier, req.branch), encoding="utf-8")
+        sp_path.write_text(system_prompt(req.tier, req.branch, req.instructions), encoding="utf-8")
         mcp_path = state / "mcp.json"
         mcp_path.write_text(json.dumps(build_mcp_config(req.policy_path)), encoding="utf-8")
         args = build_args(

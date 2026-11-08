@@ -41,6 +41,15 @@ policy:
   never_commands: []
   approval_timeout_s: 300
 
+computer:                        # tasks on the computer itself (docs/setup/computer.md)
+  enabled: false
+  workspace: ~/tell-my-pc        # its own folder; tmp/ is emptied after every task
+  write_roots: []                # e.g. ~/Downloads
+  read_roots: []
+  blocked: []                    # never, not even with an approval
+  default_target: true           # tasks that name no project go here
+  actions: true                  # open apps/URLs, media keys, lock, screenshot, system info
+
 delivery:
   roots: []                      # e.g. ~/Pictures/Screenshots
   link_ttl_s: 3600

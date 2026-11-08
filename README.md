@@ -12,8 +12,11 @@ headless mode, on its own git branch, and pushes a short report back to your pho
 - **Contained.** Tasks run under permission tiers (Read, Work, Approve, Never) enforced by a hook,
   on a throwaway `tmp/task-<id>` branch. It never uses `--dangerously-skip-permissions`.
 - **Honest reports.** The list of changed files comes from `git diff`, not from the model.
+- **Also the computer itself** (opt-in): "open Spotify", "pause the music", "what's my
+  battery", "tidy my Downloads", in folders you allow
+  ([docs/setup/computer.md](docs/setup/computer.md)).
 
-Status: **1.1.0**, stable plugin API 1.0. Docs: <https://0hbrar0.github.io/tell-my-pc/> ·
+Status: **1.2.0**, stable plugin API 1.1. Docs: <https://0hbrar0.github.io/tell-my-pc/> ·
 [Changelog](CHANGELOG.md)
 
 ## How it is contained
@@ -33,7 +36,7 @@ You need [Claude Code](https://docs.claude.com/en/docs/claude-code) (logged in) 
 [Tailscale](https://tailscale.com/download) on your computer and iPhone.
 
 ```bash
-uv tool install git+https://github.com/0HBrar0/tell-my-pc@v1.1.0   # or: pipx install git+...
+uv tool install git+https://github.com/0HBrar0/tell-my-pc@v1.2.0   # or: pipx install git+...
 tell-my-pc setup
 ```
 

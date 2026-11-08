@@ -66,6 +66,18 @@ Native Windows has no Claude Code sandbox, so containment is ours:
 - The project folder must be the top of its own repo, so we never switch branches in an outer
   repo (for example a home folder that is a git repo).
 
+### Computer tasks (ADR 0008, off by default)
+- No git branch, so changes are real. Writes are allowed only in the workspace and
+  `computer.write_roots`; reads also in `read_roots`; anything else needs approval, and
+  `computer.blocked` folders are Never rules. `check` refuses whole drives, the home folder,
+  system folders and tell-my-pc's own folders as writable roots.
+- Curated `pc_*` actions take checked arguments, never a command line: apps only from the
+  Start menu by AppID, only http(s) URLs, no opening of programs, scripts or shortcuts,
+  deletes only to the Recycle Bin. Closing programs and power actions always need approval.
+- Shell commands are checked against blocked and Never paths in the raw text as well as per
+  argument, so Windows backslash paths can't hide them.
+- Changed files come from a before/after snapshot of the writable folders.
+
 ### Kill switch
 - `lock` from the phone or the CLI refuses new tasks, denies pending approvals, and makes the
   hook deny every tool call. Only `tell-my-pc unlock` on the computer lifts it.
@@ -84,6 +96,9 @@ Native Windows has no Claude Code sandbox, so containment is ours:
 - **Plugins are trusted code.** A notifier sees your reports. An executor plugin that ignores
   the policy hook defeats the tiers (`tell-my-pc check` warns).
 - **ntfy sees your reports.** Use a token-protected topic or your own server.
+- **Opening an app runs it.** `pc_open_app` can start anything in your Start menu, and an
+  approved shell command in a computer task runs as you with no branch to undo it. Keep
+  `write_roots` small and block folders you care about.
 - **Branch switching is visible.** While a task runs, your editor sees `tmp/task-<id>`.
 
 ## Testing the controls

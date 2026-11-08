@@ -21,7 +21,9 @@ class TaskReport:
     summary: str = ""
     done: list[str] = field(default_factory=list)
     files_changed: list[dict[str, str]] = field(default_factory=list)
-    """From git diff, never from the model."""
+    """From git diff (or, for computer tasks, a folder snapshot), never from the model."""
+    target: str = "project"
+    """"project", or "computer" for tasks on the computer itself (ADR 0008)."""
     errors: list[str] = field(default_factory=list)
     not_done: list[dict[str, str]] = field(default_factory=list)
     needs_from_you: list[str] = field(default_factory=list)
@@ -77,6 +79,8 @@ class TaskReport:
         tail = ""
         if n and self.branch and self.branch_kept:
             tail = f" {n} file{'s' if n != 1 else ''} changed on {self.branch}."
+        elif n and self.target == "computer":
+            tail = f" {n} file{'s' if n != 1 else ''} changed."
         if self.needs_from_you:
             tail += " It needs something from you."
         return f"{head}{summary}{tail}".strip()
@@ -131,6 +135,11 @@ class TaskReport:
         )
         started = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self.started_at))
         branch = self.branch or "(none, ran in place)"
+        if self.target == "computer":
+            branch = "(none: a task on the computer itself)"
+        files_from = (
+            "from a before/after folder snapshot" if self.target == "computer" else "from git"
+        )
         if self.branch and not self.branch_kept:
             branch += " (deleted: no changes)"
         usage = ""
@@ -160,7 +169,7 @@ class TaskReport:
 
 {bullets(self.done)}
 
-## Files changed (from git)
+## Files changed ({files_from})
 
 {files}
 

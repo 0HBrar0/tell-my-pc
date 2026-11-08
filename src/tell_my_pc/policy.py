@@ -45,6 +45,22 @@ MCP_SERVER_NAME = "tell_my_pc"
 DELIVER_TOOL = f"mcp__{MCP_SERVER_NAME}__deliver_file"
 RECENT_FILES_TOOL = f"mcp__{MCP_SERVER_NAME}__list_recent_files"
 SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
+
+
+def _pc(name: str) -> str:
+    return f"mcp__{MCP_SERVER_NAME}__{name}"
+
+
+# Computer tasks (ADR 0008). Fixed actions with checked arguments: no tap needed.
+PC_FREE_TOOLS = frozenset(
+    _pc(n)
+    for n in ("pc_system_info", "pc_list_apps", "pc_open_app", "pc_open_url", "pc_media",
+              "pc_lock_screen", "pc_screenshot", "pc_list_processes")
+)  # fmt: skip
+PC_OPEN_PATH_TOOL = _pc("pc_open_path")  # a document or folder in a readable folder
+PC_RECYCLE_TOOL = _pc("pc_recycle")  # to the Recycle Bin, in a writable folder
+PC_ASK_TOOLS = frozenset({_pc("pc_close_app"), _pc("pc_power")})  # always a tap on the phone
+PC_TOOLS = PC_FREE_TOOLS | PC_ASK_TOOLS | {PC_OPEN_PATH_TOOL, PC_RECYCLE_TOOL}
 # Tools with no side effects outside the conversation. Subagent tool calls are hooked too.
 SAFE_TOOLS = frozenset(
     {"TodoWrite", "Task", "Agent", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet",
@@ -93,6 +109,10 @@ class PolicySpec:
     delivery_roots: list[str] = field(default_factory=list)
     delivery_ttl_s: float = 3600
     delivery_max_bytes: int = 200_000_000
+    write_roots: list[str] = field(default_factory=list)
+    """Besides project_dir, folders tasks may change (computer tasks only)."""
+    pc_actions: bool = False
+    """Curated computer actions (pc_* tools) are available."""
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,6 +155,8 @@ def build_spec(
     delivery_roots: list[str] | None = None,
     delivery_ttl_s: float = 3600,
     delivery_max_bytes: int = 200_000_000,
+    write_roots: list[str] | None = None,
+    pc_actions: bool = False,
 ) -> PolicySpec:
     never_paths = (list(NEVER_PATHS) if builtin_never else []) + list(extra_never_paths)
     never_paths += [d.rstrip("/\\") + "/**" for d in protect_dirs]
@@ -145,7 +167,9 @@ def build_spec(
         tier=tier,
         project_dir=project_dir,
         task_id=task_id,
-        read_roots=[project_dir, *extra_read_roots, *(delivery_roots or [])],
+        read_roots=[project_dir, *(write_roots or []), *extra_read_roots, *(delivery_roots or [])],
+        write_roots=list(write_roots or []),
+        pc_actions=pc_actions,
         work_commands=[c.split() for c in work_commands if c.split()],
         never_paths=never_paths,
         never_programs=never_programs,
@@ -231,6 +255,9 @@ class _PathCheck:
         self.read_roots = [
             r for root in spec.read_roots for r in norm_path(root, spec.project_dir, spec.home)
         ]
+        self.write_roots = [
+            r for root in spec.write_roots for r in norm_path(root, spec.project_dir, spec.home)
+        ]
 
     def forms(self, raw: str) -> tuple[str, str]:
         return norm_path(raw, self.base, self.home)
@@ -247,6 +274,17 @@ class _PathCheck:
         # both forms must stay inside: blocks ../ tricks and symlinks pointing out
         return any(within(lexical, p) for p in self.project) and any(
             within(resolved, p) for p in self.project
+        )
+
+    def writable(self, raw: str) -> bool:
+        """Inside the project, or inside a write root (both lexically and resolved)."""
+        if self.in_project(raw):
+            return True
+        if not self.write_roots:
+            return False
+        lexical, resolved = self.forms(raw)
+        return any(within(lexical, r) for r in self.write_roots) and any(
+            within(resolved, r) for r in self.write_roots
         )
 
     def readable(self, raw: str) -> bool:
@@ -301,9 +339,13 @@ def _decide(spec: PolicySpec, tool: str, ti: dict[str, Any]) -> Decision:
             return Decision("deny", f"Never rule: tasks may not write inside the project's {prot}/")
         if tool not in tier_tools:
             return Decision("ask", f"{tool} is not in the {spec.tier} tier")
-        if not checker.in_project(raw):
-            return Decision("ask", f"{raw} is outside the project folder")
+        if not checker.writable(raw):
+            where = "the folders this task may change" if spec.write_roots else "the project folder"
+            return Decision("ask", f"{raw} is outside {where}")
         return Decision("allow", "edit inside the project")
+
+    if tool in PC_TOOLS:
+        return _decide_pc(spec, checker, tool, ti)
 
     if tool == RECENT_FILES_TOOL:
         return Decision("allow", "lists files in allowed folders only (checked by the server)")
@@ -321,6 +363,33 @@ def _decide(spec: PolicySpec, tool: str, ti: dict[str, Any]) -> Decision:
         return _decide_shell(spec, checker, str(ti.get("command") or ""), tier_tools, tool)
 
     return Decision("ask", f"tool {tool} is not in any tier")
+
+
+def _decide_pc(spec: PolicySpec, checker: _PathCheck, tool: str, ti: dict[str, Any]) -> Decision:
+    short = tool.rsplit("__", 1)[-1]
+    if not spec.pc_actions:
+        return Decision("deny", f"{short} is only available in computer tasks")
+    if tool in PC_FREE_TOOLS:
+        return Decision("allow", "curated computer action")
+    if tool in PC_ASK_TOOLS:
+        what = ti.get("action") or ti.get("name") or ""
+        return Decision("ask", f"{short} {what}".strip() + " always needs your approval")
+    raw = str(ti.get("path") or "")
+    if not raw:
+        return Decision("deny", "no path given")
+    hit = checker.never(raw)
+    if hit:
+        return Decision("deny", f"Never rule: {raw} matches {hit}")
+    if tool == PC_OPEN_PATH_TOOL:
+        if not checker.readable(raw):
+            return Decision("ask", f"{raw} is outside the folders this task may read")
+        return Decision("allow", "open a document or folder in a readable folder")
+    # PC_RECYCLE_TOOL
+    if not checker.writable(raw):
+        return Decision("ask", f"{raw} is outside the folders this task may change")
+    if checker.forms(raw)[1] in checker.project | set(checker.write_roots):
+        return Decision("deny", "won't recycle a whole allowed folder")
+    return Decision("allow", "move to the Recycle Bin inside a writable folder")
 
 
 def _decide_read(checker: _PathCheck, tool: str, ti: dict[str, Any]) -> Decision:
@@ -425,6 +494,15 @@ def _decide_shell(
 ) -> Decision:
     if not command.strip():
         return Decision("deny", "empty command")
+    # Check path-like words in the raw text too: POSIX parsing would eat Windows backslashes
+    # (C:\x\y -> C:xy) and hide a Never path from the per-argument check below. The path as
+    # written only: resolving symlinks here would flag the program itself (a venv's python
+    # links into /Library on macOS). Arguments get the resolved check below.
+    for word in re.split(r"[\s;&|()<>`'\"=]+", command):
+        if word and _looks_like_path(word):
+            hit = _never_match(checker.forms(word)[0], spec.never_paths, spec.home)
+            if hit:
+                return Decision("deny", f"Never rule: {word} matches {hit}")
     parsed = split_shell(command)
     never_programs = {program_name(p) for p in spec.never_programs}
     if isinstance(parsed, str):
@@ -447,11 +525,11 @@ def _decide_shell(
                 hit = seg_check.never(value)
                 if hit:
                     return Decision("deny", f"Never rule: argument {value} matches {hit}")
-                if not seg_check.in_project(value) and pending is None:
+                if not seg_check.writable(value) and pending is None:
                     pending = Decision("ask", f"argument {value} points outside the project")
         if prog == "cd":
             target = argv[1] if len(argv) > 1 else spec.home
-            if len(argv) > 2 or not seg_check.in_project(target):
+            if len(argv) > 2 or not seg_check.writable(target):
                 pending = pending or Decision("ask", "cd outside the project")
             else:
                 cwd = seg_check.forms(target)[1]

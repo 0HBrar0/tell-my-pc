@@ -69,6 +69,93 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+
+def _tool(name: str, description: str, props: dict[str, Any], required: list[str]) -> dict:
+    schema: dict[str, Any] = {"type": "object", "properties": props}
+    if required:
+        schema["required"] = required
+    return {"name": name, "description": description, "inputSchema": schema}
+
+
+_PATH = {"path": {"type": "string", "description": "Absolute path."}}
+PC_TOOLS: list[dict[str, Any]] = [
+    _tool("pc_system_info", "Time, battery, memory, uptime and free disk space.", {}, []),
+    _tool(
+        "pc_list_apps",
+        "Apps in the Start menu (names to use with pc_open_app).",
+        {"query": {"type": "string", "description": "Only names containing this."}},
+        [],
+    ),
+    _tool(
+        "pc_open_app",
+        "Open an app from the Start menu by name, e.g. Spotify, Notepad, Calculator.",
+        {"name": {"type": "string"}},
+        ["name"],
+    ),
+    _tool(
+        "pc_open_url",
+        "Open an http(s) link in the default browser on the computer.",
+        {"url": {"type": "string"}},
+        ["url"],
+    ),
+    _tool(
+        "pc_open_path",
+        "Open a document or folder on the computer with its default app (not programs or scripts).",
+        _PATH,
+        ["path"],
+    ),
+    _tool(
+        "pc_media",
+        "Media and volume keys. set_volume takes a percentage in `times`.",
+        {
+            "action": {
+                "type": "string",
+                "enum": [
+                    "play_pause",
+                    "next",
+                    "previous",
+                    "stop",
+                    "volume_up",
+                    "volume_down",
+                    "mute",
+                    "set_volume",
+                ],
+            },
+            "times": {"type": "integer", "minimum": 1, "maximum": 100},
+        },
+        ["action"],
+    ),
+    _tool("pc_lock_screen", "Lock the computer's screen.", {}, []),
+    _tool(
+        "pc_screenshot",
+        "Take a screenshot of the whole screen; returns the saved path (send it with "
+        "deliver_file).",
+        {},
+        [],
+    ),
+    _tool("pc_list_processes", "Running programs, by memory use.", {}, []),
+    _tool(
+        "pc_recycle",
+        "Move a file or folder to the Recycle Bin (only in the folders this task may change).",
+        _PATH,
+        ["path"],
+    ),
+    _tool(
+        "pc_close_app",
+        "Ask a running program to close, by process name like spotify.exe. Needs the user's "
+        "approval.",
+        {"name": {"type": "string"}},
+        ["name"],
+    ),
+    _tool(
+        "pc_power",
+        "Sleep, restart or shut down the computer, or cancel a pending restart/shutdown. "
+        "Needs the user's approval.",
+        {"action": {"type": "string", "enum": ["sleep", "restart", "shutdown", "cancel"]}},
+        ["action"],
+    ),
+]
+
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__"}
 
 
@@ -151,6 +238,56 @@ class Server:
         ]
         return "Newest first:\n" + "\n".join(lines)
 
+    def pc(self, name: str, args: dict[str, Any]) -> str:
+        """Run a curated computer action. The hook already decided; paths are re-checked."""
+        from . import pc_actions as pc
+
+        if not self.spec.pc_actions:
+            raise DeliveryRefused("computer actions are only available in computer tasks")
+        checker = _PathCheck(self.spec)
+
+        def checked_path(write: bool) -> Path:
+            raw = str(args.get("path") or "")
+            if not raw:
+                raise DeliveryRefused("no path given")
+            hit = checker.never(raw)
+            if hit:
+                raise DeliveryRefused(f"{raw} matches the Never rule {hit}")
+            ok = checker.writable(raw) if write else checker.readable(raw)
+            if not ok:
+                raise DeliveryRefused(f"{raw} is outside the allowed folders")
+            return Path(checker.forms(raw)[1])
+
+        simple = {
+            "pc_system_info": pc.system_info,
+            "pc_lock_screen": pc.lock_screen,
+            "pc_list_processes": pc.list_processes,
+        }
+        if name in simple:
+            return simple[name]()
+        if name == "pc_list_apps":
+            return pc.list_apps(str(args.get("query") or ""))
+        if name == "pc_open_app":
+            return pc.open_app(str(args.get("name") or ""))
+        if name == "pc_open_url":
+            return pc.open_url(str(args.get("url") or ""))
+        if name == "pc_open_path":
+            return pc.open_path(checked_path(write=False))
+        if name == "pc_media":
+            return pc.media(str(args.get("action") or ""), int(args.get("times") or 1))
+        if name == "pc_screenshot":
+            return pc.screenshot(Path(self.spec.project_dir) / "screenshots")
+        if name == "pc_recycle":
+            return pc.recycle(checked_path(write=True))
+        if name == "pc_close_app":
+            return pc.close_app(str(args.get("name") or ""))
+        if name == "pc_power":
+            return pc.power(str(args.get("action") or ""))
+        raise DeliveryRefused(f"unknown computer action {name}")
+
+    def tools(self) -> list[dict[str, Any]]:
+        return TOOLS + (PC_TOOLS if self.spec.pc_actions else [])
+
     # ------------------------------------------------------------------ protocol
 
     def handle(self, msg: dict[str, Any]) -> dict[str, Any] | None:
@@ -171,7 +308,7 @@ class Server:
         if method == "ping":
             return _ok(mid, {})
         if method == "tools/list":
-            return _ok(mid, {"tools": TOOLS})
+            return _ok(mid, {"tools": self.tools()})
         if method == "tools/call":
             params = msg.get("params") or {}
             name = params.get("name")
@@ -181,10 +318,19 @@ class Server:
                     text = self.deliver_file(args)
                 elif name == "list_recent_files":
                     text = self.list_recent_files(args)
+                elif isinstance(name, str) and name.startswith("pc_"):
+                    text = self.pc(name, args)
                 else:
                     return _err(mid, -32602, f"unknown tool {name}")
                 return _ok(mid, {"content": [{"type": "text", "text": text}], "isError": False})
-            except DeliveryRefused as e:
+            except Exception as e:  # refusals and action failures go back to the model
+                import subprocess
+
+                from .pc_actions import ActionRefused
+
+                expected = (DeliveryRefused, ActionRefused, ValueError, OSError)
+                if not isinstance(e, (*expected, subprocess.SubprocessError)):
+                    raise
                 return _ok(
                     mid, {"content": [{"type": "text", "text": f"Refused: {e}"}], "isError": True}
                 )
