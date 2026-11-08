@@ -115,6 +115,13 @@ follow ADR 0007 (additive in 1.x).
 (`systemd --user`) and macOS (launchd); plans are pure data so tests cover every OS, and CI
 lints the real files (`scripts/ci_autostart_files.py`).
 
+1.2.0: computer tasks (ADR 0008). `computer.py` (target, workspace + tmp, snapshot diff),
+`pc_actions.py` (curated actions, Windows-first), `pc_*` tools in `mcp_server.py`, decisions
+in `policy._decide_pc`, `PolicySpec.write_roots`/`pc_actions`. Tests in
+`tests/test_computer.py`; the FakeExecutor only simulates `pc_*` calls. Verified with real
+`claude` on the maintainer PC (system info, Downloads write, blocked folder, app open,
+Recycle Bin, screenshot).
+
 Next ideas (no milestone yet): real local-model run of the fallback executor, PyPI publishing
 (needs a PyPI account and a trusted publisher set up by the user).
 

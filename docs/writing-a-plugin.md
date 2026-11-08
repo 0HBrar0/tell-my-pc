@@ -91,6 +91,8 @@ whenever a non-built-in executor is configured.
 
 ## Plugin API changelog
 
+- **1.1**: `ExecRequest.instructions`, extra system-prompt text (computer tasks). Executors
+  that build their own prompt should include it; 1.0 plugins keep working.
 - **1.0**: stable; same interfaces as 0.2. From here on, minor versions only add things and
   breaking changes wait for 2.0. Plugins written for 0.2 only need `api_version = "1.0"`.
 - **0.2**: `TaskSink` gained `answer_approval()` and `lock()`.

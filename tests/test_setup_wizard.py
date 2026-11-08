@@ -61,6 +61,7 @@ def test_setup_with_defaults_writes_a_safe_config(
     assert len(cfg.server.token.resolve() or "") >= 32
     assert cfg.delivery.attach_max_mb == 0  # no ntfy token: links only
     assert cfg.delivery.roots == [str(tmp_path / "Screenshots")]
+    assert cfg.computer.enabled and cfg.computer.workspace.endswith("tell-my-pc")
     page = paths.data_dir() / "phone-setup.html"
     text = page.read_text(encoding="utf-8")
     assert "<svg" in text and "http://127.0.0.1:8787/task" in text
@@ -70,8 +71,8 @@ def test_setup_with_defaults_writes_a_safe_config(
 
 def test_setup_interactive_choices(tmp_path: Path, projects_dir: Path) -> None:
     cfg_path = tmp_path / "c.yaml"
-    # folder, project choice, "send files from Screenshots?", ntfy token env var
-    answers = iter([str(projects_dir), "2", "n", "NTFY_TOKEN"])
+    # folder, project choice, "send files from Screenshots?", ntfy token env var, computer tasks
+    answers = iter([str(projects_dir), "2", "n", "NTFY_TOKEN", "n"])
 
     import argparse
 
@@ -86,6 +87,15 @@ def test_setup_interactive_choices(tmp_path: Path, projects_dir: Path) -> None:
     assert cfg.server.port == 8800
     assert cfg.notifier is not None and cfg.notifier.token is not None  # type: ignore[union-attr]
     assert cfg.delivery.attach_max_mb == 2 and cfg.delivery.roots == []
+    assert not cfg.computer.enabled  # answered no
+
+
+def test_computer_defaults(tmp_path: Path) -> None:
+    assert W.computer_defaults(tmp_path)["write_roots"] == []
+    (tmp_path / "Downloads").mkdir()
+    d = W.computer_defaults(tmp_path)
+    assert d["workspace"] == str(tmp_path / "tell-my-pc")
+    assert d["write_roots"] == [str(tmp_path / "Downloads")]
 
 
 def test_setup_refuses_to_overwrite_without_force(tmp_path: Path, projects_dir: Path) -> None:

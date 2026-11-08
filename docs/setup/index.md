@@ -8,3 +8,4 @@
 4. [Start the daemon when you log in](autostart.md)
 5. [Getting files on your phone](files.md)
 6. [When Claude is at its usage limit](fallback.md)
+7. [Tasks on the computer itself](computer.md): apps, media, files, outside projects

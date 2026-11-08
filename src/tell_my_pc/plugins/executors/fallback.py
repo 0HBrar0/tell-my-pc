@@ -111,7 +111,11 @@ class FallbackExecutor:
         spec.approvals = False  # never ask the phone on behalf of a fallback model
         tools = READ_TOOLS + (WORK_TOOLS if req.tier == "work" else [])
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt(req.tier, req.branch) + FINAL_INSTRUCTIONS},
+            {
+                "role": "system",
+                "content": system_prompt(req.tier, req.branch, req.instructions)
+                + FINAL_INSTRUCTIONS,
+            },
             {"role": "user", "content": req.prompt},
         ]
         usage = {"prompt_tokens": 0, "completion_tokens": 0}

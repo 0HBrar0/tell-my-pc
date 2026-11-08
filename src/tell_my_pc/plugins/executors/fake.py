@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from ...hook import evaluate
-from ...policy import DELIVER_TOOL, PolicySpec, split_shell
+from ...policy import DELIVER_TOOL, PC_TOOLS, PolicySpec, split_shell
 from ..api import PLUGIN_API_VERSION, ExecEvent, ExecRequest, ExecResult, OnEvent
 
 DEFAULT_SCRIPT: list[dict[str, Any]] = [
@@ -111,6 +111,9 @@ def _apply(tool: str, ti: dict[str, Any], cwd: str, spec: PolicySpec) -> tuple[b
         text = p.read_text(encoding="utf-8")
         p.write_text(text.replace(str(ti["old_string"]), str(ti["new_string"]), 1), "utf-8")
         return True, f"edited {ti['file_path']}"
+    if tool in PC_TOOLS:
+        # Simulated: tests must never open apps or lock the screen of the machine running them.
+        return True, f"(simulated) {tool.rsplit('__', 1)[-1]} {_brief(ti) or ti}".strip()
     if tool == DELIVER_TOOL:
         from ...delivery import DeliveryRefused
         from ...mcp_server import Server

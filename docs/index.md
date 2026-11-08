@@ -35,7 +35,9 @@ phone part.
 2. [ntfy](setup/ntfy.md): reports and approval buttons on the phone
 3. [The "Tell Claude" Shortcut](setup/iphone-shortcut.md)
 4. [Start at logon](setup/autostart.md)
-5. Optional: [files to the phone](setup/files.md), [fallback models](setup/fallback.md)
+5. Optional: [tasks on the computer itself](setup/computer.md) (open apps, media keys,
+   files in Downloads), [files to the phone](setup/files.md),
+   [fallback models](setup/fallback.md)
 
 ## How it works
 

@@ -229,8 +229,46 @@ class ExecutorConfig(_Model):
     )
 
 
+class ComputerConfig(_Model):
+    """Tasks on the computer itself, outside any project (ADR 0008)."""
+
+    enabled: bool = False
+    name: str = Field(default="computer", description="Spoken name of this target.")
+    aliases: list[str] = Field(
+        default_factory=lambda: ["pc", "my pc", "my computer", "this computer", "laptop"]
+    )
+    workspace: str = Field(
+        default="~/tell-my-pc",
+        description="Folder these tasks fully control; scripts go in its tmp/ subfolder, which "
+        "is emptied after every task.",
+    )
+    write_roots: list[str] = Field(
+        default_factory=list,
+        description="Other folders tasks may change (move, rename, create, Recycle Bin).",
+    )
+    read_roots: list[str] = Field(
+        default_factory=list, description="Folders tasks may read but not change."
+    )
+    blocked: list[str] = Field(
+        default_factory=list,
+        description="Folders tasks may never read or touch, even with an approval.",
+    )
+    default_target: bool = Field(
+        default=True, description="Tasks that name no project go to the computer."
+    )
+    actions: bool = Field(
+        default=True,
+        description="Curated actions: open apps/URLs, media keys, lock, screenshot, system info.",
+    )
+
+    @property
+    def keys(self) -> list[str]:
+        return [self.name, *self.aliases]
+
+
 class Config(_Model):
     version: Literal[1] = 1
+    computer: ComputerConfig = Field(default_factory=lambda: ComputerConfig.model_validate({}))
     server: ServerConfig = Field(default_factory=lambda: ServerConfig.model_validate({}))
     limits: LimitsConfig = Field(default_factory=lambda: LimitsConfig.model_validate({}))
     projects: list[ProjectConfig]
@@ -347,9 +385,10 @@ def safety_problems(cfg: Config) -> list[str]:
         elif program_name(parts[0]) in never:
             problems.append(f"policy.work_commands entry {cmd!r} runs a Never program.")
 
-    if not cfg.projects:
+    if not cfg.projects and not cfg.computer.enabled:
         problems.append("No projects configured.")
-    names: set[str] = set()
+    problems += computer_problems(cfg)
+    names: set[str] = {cfg.computer.name.lower()} if cfg.computer.enabled else set()
     for p in cfg.projects:
         key = p.name.lower()
         if key in names:
@@ -371,6 +410,52 @@ def safety_problems(cfg: Config) -> list[str]:
                 "notifier.topic is short enough to guess. Use at least 12 random characters."
             )
     return problems
+
+
+def _norm_dir(p: str) -> str:
+    return os.path.normcase(os.path.normpath(os.path.abspath(os.path.expanduser(p))))
+
+
+def _inside(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip("\\/") + os.sep)
+
+
+def _system_dirs() -> list[str]:
+    dirs = ["/", "/bin", "/boot", "/dev", "/etc", "/lib", "/proc", "/sbin", "/sys", "/usr",
+            "/var", "/System", "/Library", "/Applications"]  # fmt: skip
+    for env in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData"):
+        if os.environ.get(env):
+            dirs.append(os.environ[env])
+    return [_norm_dir(d) for d in dirs]
+
+
+def computer_problems(cfg: Config) -> list[str]:
+    """Folders a computer task may change must be specific, and never the system or our own."""
+    c = cfg.computer
+    if not c.enabled:
+        return []
+    out: list[str] = []
+    home = _norm_dir("~")
+    own = [_norm_dir(str(paths.config_dir())), _norm_dir(str(paths.data_dir()))]
+    system = _system_dirs()
+    blocked = [_norm_dir(b) for b in c.blocked]
+    for label, raw in [("computer.workspace", c.workspace)] + [
+        ("computer.write_roots", w) for w in c.write_roots
+    ]:
+        d = _norm_dir(raw)
+        if os.path.dirname(d) == d:
+            out.append(f"{label} {raw} is a whole drive. Pick a folder.")
+        elif d == home:
+            out.append(f"{label} {raw} is your whole home folder. Pick a folder inside it.")
+        elif any(_inside(d, s) or _inside(s, d) for s in system if os.path.dirname(s) != s):
+            out.append(f"{label} {raw} is or contains a system folder. Refused.")
+        elif any(_inside(d, o) or _inside(o, d) for o in own):
+            out.append(f"{label} {raw} overlaps tell-my-pc's own config or data folder.")
+        elif any(_inside(d, b) or _inside(b, d) for b in blocked):
+            out.append(f"{label} {raw} overlaps a computer.blocked folder.")
+    if not c.name.strip():
+        out.append("computer.name must not be empty.")
+    return out
 
 
 INBOX_MIN_TOPIC = 24

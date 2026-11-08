@@ -18,7 +18,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-PLUGIN_API_VERSION = "1.0"
+PLUGIN_API_VERSION = "1.1"
+# 1.1: ExecRequest.instructions (optional extra system-prompt text).
 # 1.0: stable. No breaking changes until 2.0; 0.x plugins must bump api_version to "1.0".
 # 0.2: TaskSink gained answer_approval() and lock().
 
@@ -124,6 +125,9 @@ class ExecRequest:
     branch: str | None = None
     timeout_s: float = 3600
     env: dict[str, str] = field(default_factory=dict)
+    instructions: str = ""
+    """Extra system-prompt text for this task (API 1.1; computer tasks use it). Executors that
+    build their own prompt should include it."""
 
 
 @dataclass

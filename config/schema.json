@@ -1,5 +1,73 @@
 {
   "$defs": {
+    "ComputerConfig": {
+      "additionalProperties": false,
+      "description": "Tasks on the computer itself, outside any project (ADR 0008).",
+      "properties": {
+        "actions": {
+          "default": true,
+          "description": "Curated actions: open apps/URLs, media keys, lock, screenshot, system info.",
+          "title": "Actions",
+          "type": "boolean"
+        },
+        "aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "blocked": {
+          "description": "Folders tasks may never read or touch, even with an approval.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocked",
+          "type": "array"
+        },
+        "default_target": {
+          "default": true,
+          "description": "Tasks that name no project go to the computer.",
+          "title": "Default Target",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "name": {
+          "default": "computer",
+          "description": "Spoken name of this target.",
+          "title": "Name",
+          "type": "string"
+        },
+        "read_roots": {
+          "description": "Folders tasks may read but not change.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Read Roots",
+          "type": "array"
+        },
+        "workspace": {
+          "default": "~/tell-my-pc",
+          "description": "Folder these tasks fully control; scripts go in its tmp/ subfolder, which is emptied after every task.",
+          "title": "Workspace",
+          "type": "string"
+        },
+        "write_roots": {
+          "description": "Other folders tasks may change (move, rename, create, Recycle Bin).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Write Roots",
+          "type": "array"
+        }
+      },
+      "title": "ComputerConfig",
+      "type": "object"
+    },
     "DeliveryConfig": {
       "additionalProperties": false,
       "description": "Files a task may send to the phone (Phase 4).",
@@ -499,6 +567,9 @@
       },
       "title": "Also Notify",
       "type": "array"
+    },
+    "computer": {
+      "$ref": "#/$defs/ComputerConfig"
     },
     "delivery": {
       "$ref": "#/$defs/DeliveryConfig"

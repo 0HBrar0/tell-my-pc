@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import delivery, gitops, paths
+from . import computer, delivery, gitops, paths
 from .config import Config, FallbackModelConfig, ProjectConfig
 from .plugins.api import (
     Action,
@@ -144,7 +144,7 @@ class Daemon:
         pending = self._pending_ask
         self._pending_ask = None
         if pending and not task.project and time.time() < pending.expires_at:
-            answer = resolve(self.cfg.projects, text) if len(text.split()) <= 6 else None
+            answer = resolve(self.targets, text) if len(text.split()) <= 6 else None
             if answer and answer.project is not None:
                 self.store.audit(
                     "project_answered", {"answer": text, "project": answer.project.name}
@@ -158,7 +158,15 @@ class Daemon:
                     source=task.source,
                 )
 
-        res = resolve(self.cfg.projects, task.project, text)
+        res = resolve(self.targets, task.project, text)
+        if (
+            res.project is None
+            and not task.project
+            and res.reason == "no project named"
+            and self.cfg.computer.enabled
+            and self.cfg.computer.default_target
+        ):
+            res = type(res)(computer.as_project(self.cfg.computer), [], "no project named")
         if res.project is None:
             options = ", ".join(p.name for p in res.candidates[:8])
             speak = (
@@ -395,8 +403,17 @@ class Daemon:
             self._running_projects[t.project] = t.id
             self._running[t.id] = asyncio.create_task(self._run(t), name=f"task-{t.id}")
 
+    @property
+    def targets(self) -> list[ProjectConfig]:
+        """Configured projects, plus the computer itself when it is enabled (ADR 0008)."""
+        c = self.cfg.computer
+        return [*self.cfg.projects, computer.as_project(c)] if c.enabled else self.cfg.projects
+
+    def is_computer(self, name: str) -> bool:
+        return self.cfg.computer.enabled and name == self.cfg.computer.name
+
     def _project(self, name: str) -> ProjectConfig:
-        for p in self.cfg.projects:
+        for p in self.targets:
             if p.name == name:
                 return p
         raise KeyError(name)
@@ -406,9 +423,14 @@ class Daemon:
     async def _run(self, t: TaskRow) -> None:
         report = TaskReport(id=t.id, project=t.project, asked=t.text, tier=t.tier, status="failed")
         tb: gitops.TaskBranch | None = None
+        pc: computer.ComputerRun | None = None
         try:
             project = self._project(t.project)
             pdir = str(Path(project.path).expanduser().resolve())
+            if self.is_computer(t.project):
+                pc = await asyncio.to_thread(computer.ComputerRun.start, self.cfg.computer, t.id)
+                pdir = str(pc.workspace)
+                report.target = "computer"
             state_dir = self.tasks_dir / t.id
             state_dir.mkdir(parents=True, exist_ok=True)
 
@@ -425,36 +447,46 @@ class Daemon:
                 if t.session_id:
                     session = {"session_id": t.session_id, "branch": t.branch}
 
-            try:
-                tb = await asyncio.to_thread(gitops.prepare, pdir, t.id, t.tier, start_from)
-            except gitops.GitError as e:
-                report.status = "refused"
-                report.summary = str(e)
-                report.errors.append(str(e))
-                return
-            if tb.note:
-                report.notes.append(tb.note)
-            report.branch, report.base_ref = tb.branch, tb.base_ref
-            self.store.update_task(t.id, branch=tb.branch, base_ref=tb.base_ref)
+            if pc is None:
+                try:
+                    tb = await asyncio.to_thread(gitops.prepare, pdir, t.id, t.tier, start_from)
+                except gitops.GitError as e:
+                    report.status = "refused"
+                    report.summary = str(e)
+                    report.errors.append(str(e))
+                    return
+                if tb.note:
+                    report.notes.append(tb.note)
+                report.branch, report.base_ref = tb.branch, tb.base_ref
+                self.store.update_task(t.id, branch=tb.branch, base_ref=tb.base_ref)
 
             pol = self.cfg.policy
+            c = self.cfg.computer
+            pc_write = [str(r) for r in pc.roots[1:]] if pc else []
+            pc_read = [str(computer.expand(r)) for r in c.read_roots] if pc else []
+            pc_never = [str(computer.expand(b)) + "/**" for b in c.blocked] if pc else []
             spec = build_spec(
                 tier="read" if t.tier == "read" else "work",
                 project_dir=pdir,
                 task_id=t.id,
                 work_commands=pol.work_commands,
-                extra_read_roots=[str(Path(r).expanduser()) for r in pol.extra_read_roots],
+                extra_read_roots=[str(Path(r).expanduser()) for r in pol.extra_read_roots]
+                + pc_read,
                 builtin_never=pol.builtin_never,
-                extra_never_paths=pol.never_paths,
+                extra_never_paths=[*pol.never_paths, *pc_never],
                 extra_never_programs=pol.never_commands,
                 protect_dirs=[str(paths.config_dir()), str(self.data_dir)],
                 state_dir=str(state_dir),
                 db_path=self.store.path if self.store.path != ":memory:" else None,
                 approvals=self.approvals_enabled,
                 approval_timeout_s=pol.approval_timeout_s,
-                delivery_roots=[str(Path(r).expanduser()) for r in self.cfg.delivery.roots],
+                delivery_roots=[str(Path(r).expanduser()) for r in self.cfg.delivery.roots]
+                + pc_write
+                + pc_read,
                 delivery_ttl_s=self.cfg.delivery.link_ttl_s,
                 delivery_max_bytes=int(self.cfg.delivery.max_file_mb * 1_000_000),
+                write_roots=pc_write,
+                pc_actions=bool(pc and c.actions),
             )
             policy_path = state_dir / "policy.json"
             spec.save(policy_path)
@@ -466,8 +498,9 @@ class Daemon:
                 tier="read" if t.tier == "read" else "work",
                 policy_path=str(policy_path),
                 resume_session_id=session["session_id"] if session else None,
-                branch=tb.branch,
+                branch=tb.branch if tb else None,
                 timeout_s=self.cfg.limits.task_timeout_s,
+                instructions=computer.instructions(c, pc) if pc else "",
             )
             report.resumed = bool(req.resume_session_id)
 
@@ -490,7 +523,11 @@ class Daemon:
                     self.store.update_task(t.id, session_id=result.session_id)
             if result.limit_reset_at and not result.ok and not result.stopped:
                 self._claude_limited_until = max(self._claude_limited_until, result.limit_reset_at)
-                fallback = await self._fallback_after_limit(t, project, req, tb, report, on_event)
+                fallback = (
+                    await self._fallback_after_limit(t, project, req, tb, report, on_event)
+                    if tb is not None
+                    else None  # computer tasks wait for Claude (ADR 0008)
+                )
                 if fallback is None:
                     self._hold(t, report, result.limit_reset_at)
                     return
@@ -504,7 +541,7 @@ class Daemon:
             report.status = "failed"
             report.errors.append(f"internal error: {e}")
         finally:
-            await self._finish(t, report, tb)
+            await self._finish(t, report, tb, pc)
 
     # ------------------------------------------------------------------ usage limits
 
@@ -582,9 +619,22 @@ class Daemon:
             when = time.strftime("%H:%M", time.localtime(result.limit_reset_at))
             report.notes.append(f"Claude usage limit reached; resets around {when}.")
 
-    async def _finish(self, t: TaskRow, report: TaskReport, tb: gitops.TaskBranch | None) -> None:
+    async def _finish(
+        self,
+        t: TaskRow,
+        report: TaskReport,
+        tb: gitops.TaskBranch | None,
+        pc: computer.ComputerRun | None = None,
+    ) -> None:
         self.store.expire_task_approvals(t.id)
         try:
+            if pc is not None:
+                report.files_changed = await asyncio.to_thread(pc.changes)
+                await asyncio.to_thread(pc.cleanup)
+                if pc.untracked:
+                    report.notes.append(
+                        "Too many files to track changes in: " + ", ".join(pc.untracked)
+                    )
             if tb is not None:
                 changes, problems = await asyncio.to_thread(
                     gitops.finalize, tb, f"tell-my-pc: task {t.id}\n\n{t.text[:500]}"

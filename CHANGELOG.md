@@ -3,6 +3,28 @@
 All notable changes. The package follows [Semantic Versioning](https://semver.org); the plugin
 API has its own version (see [ADR 0007](docs/decisions/0007-plugin-api-1-0-stability.md)).
 
+## 1.2.0 · 2026-11-07
+
+### Added
+
+- **Tasks on the computer itself** ([ADR 0008](docs/decisions/0008-tasks-on-the-computer-itself.md),
+  [guide](docs/setup/computer.md)), opt-in with `computer.enabled`. Say "on my PC", or name no
+  project. Claude works in its own workspace folder, with a per-task `tmp/` that is emptied
+  afterwards.
+  - Allowlisted folders: writes in the workspace and `write_roots`, reads also in
+    `read_roots`; anything else asks; `blocked` folders are refused even with an approval.
+  - Curated actions without a tap: system info, open Start-menu apps, links, documents,
+    media and volume keys, lock screen, screenshot, running programs, Recycle Bin.
+    Closing programs and sleep/restart/shut down always ask.
+  - Changed files come from a before/after folder snapshot, not from the model.
+- `tell-my-pc setup` offers computer tasks (workspace + Downloads).
+- Plugin API 1.1: optional `ExecRequest.instructions`.
+
+### Fixed
+
+- Shell commands are also checked for Never and blocked paths in their raw text, so Windows
+  backslash paths (mangled by POSIX parsing) are denied instead of asking.
+
 ## 1.1.0 · 2026-11-07
 
 ### Added

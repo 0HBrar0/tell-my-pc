@@ -87,7 +87,9 @@ def build_config(
     screenshots: list[Path],
     ntfy_server: str,
     ntfy_token_env: str | None,
+    computer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    extra = {"computer": computer} if computer else {}
     return {
         "version": 1,
         "server": {
@@ -116,6 +118,18 @@ def build_config(
             "topic": f"tmp-{secrets.token_urlsafe(24)}",
             "token": {"env": ntfy_token_env} if ntfy_token_env else None,
         },
+        **extra,
+    }
+
+
+def computer_defaults(home: Path | None = None) -> dict[str, Any]:
+    """Computer tasks (ADR 0008): their own workspace, plus Downloads if there is one."""
+    home = home or Path.home()
+    downloads = home / "Downloads"
+    return {
+        "enabled": True,
+        "workspace": str(home / "tell-my-pc"),
+        "write_roots": [str(downloads)] if downloads.is_dir() else [],
     }
 
 
@@ -184,6 +198,15 @@ def run(args: argparse.Namespace, read: Callable[[str], str] = input) -> int:
         "Env var holding an ntfy access token (blank: none, use a secret random topic)", ""
     )
 
+    # 6. tasks on the computer itself
+    pc = None
+    if ask.yes(
+        "Also allow tasks on the computer itself (open apps, media keys, files in Downloads)?"
+    ):
+        pc = computer_defaults()
+        say(f"  Workspace {pc['workspace']}; can change: {', '.join(pc['write_roots']) or '-'}")
+        say("  Edit `computer:` in the config to add or block folders (docs/setup/computer.md).")
+
     cfg_dict = build_config(
         projects=repos,
         bind=bind,
@@ -192,6 +215,7 @@ def run(args: argparse.Namespace, read: Callable[[str], str] = input) -> int:
         screenshots=shots,
         ntfy_server="https://ntfy.sh",
         ntfy_token_env=token_env or None,
+        computer=pc,
     )
     cfg = Config.model_validate(cfg_dict)
     problems = safety_problems(cfg)
