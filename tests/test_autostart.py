@@ -62,6 +62,8 @@ def test_systemd_unit_escapes_and_runs_serve(tmp_path: Path, odd_config: Path) -
     assert "serve --log-file" in exec_line and "--data-dir" in exec_line
     assert 'Environment="PATH=/usr/bin:/home/me/.local/bin"' in unit
     assert "WantedBy=default.target" in unit
+    workdir = next(line for line in unit.splitlines() if line.startswith("WorkingDirectory="))
+    assert '"' not in workdir  # systemd rejects quoted paths here
     assert TOKEN not in unit and "dangerously" not in unit
     assert [c.argv[2:] for c in p.commands] == [
         ["daemon-reload"],

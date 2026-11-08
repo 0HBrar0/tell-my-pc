@@ -156,7 +156,8 @@ def systemd_unit(config: Path | None, python: Path, path_env: str) -> str:
             "ExecStart=" + " ".join(_systemd_arg(a) for a in argv),
             # The user manager's PATH is minimal: pass ours so `claude` is found.
             f'Environment="PATH={_systemd_escape(path_env)}"',
-            f'WorkingDirectory="{_systemd_escape(str(data))}"',
+            # A plain path setting: no quotes allowed, only specifiers need escaping.
+            "WorkingDirectory=" + str(data).replace("%", "%%"),
             "Restart=on-failure",
             "RestartSec=10",
             "",
