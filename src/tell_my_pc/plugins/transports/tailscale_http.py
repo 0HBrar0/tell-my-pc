@@ -124,11 +124,30 @@ class TailscaleHttpTransport:
                 self.store.audit("auth_failed", {"client": client, "why": problem})
                 return fail(401, "Not authorized.")
             try:
-                return await handler(request)
+                resp = await handler(request)
             except _BadRequest as e:
-                return fail(400, str(e))
+                resp = fail(400, str(e))
+            self._log_request(request.url.path, client, resp)
+            return resp
 
         return guarded
+
+    def _log_request(self, path: str, client: str, resp: Response) -> None:
+        """What came in and what was said back (for the dashboard). Never the token."""
+        try:
+            body = json.loads(bytes(resp.body))
+        except (ValueError, TypeError):
+            body = {}
+        self.store.audit(
+            "request",
+            {
+                "path": path,
+                "client": client,
+                "status": resp.status_code,
+                "ok": bool(body.get("ok")),
+                "reply": str(body.get("speak") or body.get("error") or "")[:300],
+            },
+        )
 
     def _auth_problem(self, request: Request) -> str | None:
         auth = request.headers.get("authorization", "")
@@ -224,7 +243,9 @@ class TailscaleHttpTransport:
         ):
             return fail(400, "Bad approval link.")
         r = await self._sink().answer_approval(aid, decision == "approve", token)
-        return reply(r, 200 if r.ok else 410)
+        resp = reply(r, 200 if r.ok else 410)
+        self._log_request(f"/approval/{aid}?d={decision}", client, resp)
+        return resp
 
     async def _file(self, request: Request) -> Response:
         client = request.client.host if request.client else "?"

@@ -122,6 +122,13 @@ in `policy._decide_pc`, `PolicySpec.write_roots`/`pc_actions`. Tests in
 `claude` on the maintainer PC (system info, Downloads write, blocked folder, app open,
 Recycle Bin, screenshot).
 
+1.3.0: local dashboard. `dashboard.py` (Starlette app on 127.0.0.1, key header + Host check,
+event classification in/out/tool/system and verdict marks), static UI in
+`src/tell_my_pc/dashboard_static/` (plain JS, no build; Geist bundled). Design: graphite +
+one amber accent for "needs you", the 24 h "line" chart is the one rich moment. The audit log
+records `request` (transport) and `notification_sent` (daemon) for it. Tests in
+`tests/test_dashboard.py`.
+
 Next ideas (no milestone yet): real local-model run of the fallback executor, PyPI publishing
 (needs a PyPI account and a trusted publisher set up by the user).
 

@@ -15,8 +15,11 @@ headless mode, on its own git branch, and pushes a short report back to your pho
 - **Also the computer itself** (opt-in): "open Spotify", "pause the music", "what's my
   battery", "tidy my Downloads", in folders you allow
   ([docs/setup/computer.md](docs/setup/computer.md)).
+- **A dashboard on the computer**: `tell-my-pc dashboard` shows what came in from the phone,
+  what Claude did and what went back out, live, with approvals and the kill switch
+  ([docs/setup/dashboard.md](docs/setup/dashboard.md)).
 
-Status: **1.2.0**, stable plugin API 1.1. Docs: <https://0hbrar0.github.io/tell-my-pc/> ·
+Status: **1.3.0**, stable plugin API 1.1. Docs: <https://0hbrar0.github.io/tell-my-pc/> ·
 [Changelog](CHANGELOG.md)
 
 ## How it is contained
@@ -36,7 +39,7 @@ You need [Claude Code](https://docs.claude.com/en/docs/claude-code) (logged in) 
 [Tailscale](https://tailscale.com/download) on your computer and iPhone.
 
 ```bash
-uv tool install git+https://github.com/0HBrar0/tell-my-pc@v1.2.0   # or: pipx install git+...
+uv tool install git+https://github.com/0HBrar0/tell-my-pc@v1.3.0   # or: pipx install git+...
 tell-my-pc setup
 ```
 

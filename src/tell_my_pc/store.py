@@ -312,6 +312,63 @@ class Store:
                 ).fetchall()
         return [{**dict(r), "detail": json.loads(r["detail"])} for r in rows]
 
+    def audit_since(
+        self,
+        after_id: int = 0,
+        since_ts: float = 0,
+        limit: int = 500,
+        task_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Audit rows newer than ``after_id`` and ``since_ts``, newest last (dashboard)."""
+        sql = "SELECT * FROM audit WHERE id > ? AND ts >= ?"
+        args: list[Any] = [after_id, since_ts]
+        if task_id:
+            sql += " AND task_id = ?"
+            args.append(task_id)
+        # newest `limit` rows, returned oldest first
+        sql = f"SELECT * FROM ({sql} ORDER BY id DESC LIMIT ?) ORDER BY id"  # noqa: S608 (constant SQL, values bound)
+        args.append(limit)
+        with self._tx() as c:
+            rows = c.execute(sql, args).fetchall()
+        return [{**dict(r), "detail": json.loads(r["detail"])} for r in rows]
+
+    def audit_before(self, before_id: int, limit: int = 200) -> list[dict[str, Any]]:
+        """Older audit rows, newest first (dashboard paging)."""
+        with self._tx() as c:
+            rows = c.execute(
+                "SELECT * FROM audit WHERE id < ? ORDER BY id DESC LIMIT ?", (before_id, limit)
+            ).fetchall()
+        return [{**dict(r), "detail": json.loads(r["detail"])} for r in rows]
+
+    def approvals(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._tx() as c:
+            rows = c.execute(
+                "SELECT id, task_id, tool, detail, reason, status, created_at, expires_at,"
+                " decided_at FROM approvals ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def decide_approval_locally(self, approval_id: str, approve: bool) -> bool:
+        """Answer a still-pending, unexpired approval from the computer itself (dashboard)."""
+        now = time.time()
+        with self._tx() as c:
+            return (
+                c.execute(
+                    "UPDATE approvals SET status = ?, decided_at = ? WHERE id = ?"
+                    " AND status = 'pending' AND expires_at > ?",
+                    ("approved" if approve else "denied", now, approval_id, now),
+                ).rowcount
+                == 1
+            )
+
+    def deliveries(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self._tx() as c:
+            rows = c.execute(
+                "SELECT * FROM deliveries ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     # ------------------------------------------------------------------ approvals
 
     def add_approval(
